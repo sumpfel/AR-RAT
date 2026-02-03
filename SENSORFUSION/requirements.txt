@@ -1,2 +1,4 @@
 adafruit-circuitpython-bno055
 adafruit-blinka
+RPi.GPIO
+pyserial

@@ -1,13 +1,15 @@
 import time
-import board
-import busio
+
 import adafruit_bno055
 
-# Initialize I2C bus
-i2c = busio.I2C(board.SCL, board.SDA)
+import serial
+
+# Initialize UART connection
+# /dev/serial0 is usually the default for GPIO serial on Raspberry Pi
+uart = serial.Serial("/dev/serial0")
 
 # Initialize BNO055 sensor
-sensor = adafruit_bno055.BNO055_I2C(i2c)
+sensor = adafruit_bno055.BNO055_UART(uart)
 
 def main():
     print("BNO055 Rotation Data (X, Y, Z)")
