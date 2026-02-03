@@ -6,7 +6,7 @@ import serial
 
 # Initialize UART connection
 # /dev/serial0 is usually the default for GPIO serial on Raspberry Pi
-uart = serial.Serial("/dev/serial0")
+uart = serial.Serial("/dev/ttyAMA0")
 
 # Initialize BNO055 sensor
 sensor = adafruit_bno055.BNO055_UART(uart)
