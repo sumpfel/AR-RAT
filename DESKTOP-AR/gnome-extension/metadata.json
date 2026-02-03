@@ -1,0 +1,15 @@
+{
+    "name": "SphereFocus",
+    "description": "A 3D Cylinder/Sphere Window Layout for AR-like Desktop Experience",
+    "uuid": "spherefocus@sumpfel.github.com",
+    "shell-version": [
+        "42",
+        "43",
+        "44",
+        "45",
+        "46",
+        "47",
+        "48",
+        "49"
+    ]
+}
