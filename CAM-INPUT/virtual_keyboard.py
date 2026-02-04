@@ -59,12 +59,13 @@ class VirtualKeyboard:
             
         # Functional Row
         x = self.start_x
+        # Functional Row
+        x = self.start_x
         func_keys = [
             {"label": "DEL", "key": "BACKSPACE", "w": int(self.key_size_x*1.5)},
             {"label": "ENTER", "key": "ENTER", "w": self.key_size_x*2},
             {"label": "SPACE", "key": "SPACE", "w": self.key_size_x*5},
-            {"label": "?123", "key": "SWITCH_LAYOUT_SYM", "w": self.key_size_x*2},
-            {"label": "😊", "key": "SWITCH_LAYOUT_EMO", "w": self.key_size_x*2},
+            {"label": "?123 \U0001F600", "key": "SWITCH_LAYOUT_SYM", "w": self.key_size_x*3}, # Expanded width, combined label
             {"label": "TAB", "key": "TAB", "w": self.key_size_x*2}
         ]
         

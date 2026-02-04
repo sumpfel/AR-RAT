@@ -1,4 +1,7 @@
-adafruit-circuitpython-bno055
 adafruit-blinka
-RPi.GPIO
-pyserial
+adafruit-circuitpython-lsm6dsox
+adafruit-circuitpython-lis3mdl
+pyftdi
+ahrs
+pygame
+PyOpenGL

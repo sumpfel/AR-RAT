@@ -6,3 +6,5 @@ google-generativeai
 ollama
 opencv-python-headless
 pygame
+Pillow
+numpy

@@ -17,8 +17,18 @@ class AIBackend:
         elif mode == "ollama":
             self.ollama_model = kwargs.get("model", "llama3")
 
-    def generate_response(self, prompt):
-        self.history.append({"role": "user", "content": prompt})
+    def generate_response(self, user_input):
+        # Wrap prompt with system instructions
+        system_instruction = (
+            f"User input: \"{user_input}\"\n"
+            "Instructions: Answer in character as an anime assistant. Keep it brief (max 3 sentences). "
+            "ONLY if the input/situation strongly calls for an emotion (like if you are insulted, embarrassed, or sad), "
+            "append one of these tags: ~~expression:angry, ~~expression:sad, ~~expression:sweat, ~~expression:blush. "
+            "DO NOT use a tag for normal conversation (like 'hello' or questions). "
+            "Example: 'I-I'm not blushing! ~~expression:blush'"
+        )
+        
+        self.history.append({"role": "user", "content": system_instruction})
         
         try:
             response_text = ""
@@ -30,12 +40,8 @@ class AIBackend:
                 if not self.gemini_api_key:
                     return "Error: Gemini API Key not set."
                 model = genai.GenerativeModel('gemini-pro')
-                # Gemini doesn't use the exact same history format as Ollama simple chat, 
-                # but for single turn or simple context we can adapt. 
-                # For now, let's just send the prompt or build a simple context string.
-                # A robust implementation would map history to Gemini's format.
-                chat = model.start_chat(history=[]) # complex history mapping skipped for MVP
-                response = chat.send_message(prompt)
+                chat = model.start_chat(history=[]) 
+                response = chat.send_message(system_instruction)
                 response_text = response.text
 
             self.history.append({"role": "assistant", "content": response_text})

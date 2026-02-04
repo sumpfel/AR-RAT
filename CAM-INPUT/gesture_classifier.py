@@ -139,6 +139,26 @@ class GestureClassifier:
             return "Peace", 0.9
 
         # Check for "Fist": All closed
+        # Strict "0 fingers open" can be flaky.
+        # Robust Fist Check: Tips are close to Wrist/MCPs
+        # Let's check average distance of tips to wrist
+        tips_indices = [8, 12, 16, 20]
+        wrist_idx = 0
+        avg_dist_to_wrist = 0
+        for ti in tips_indices:
+             avg_dist_to_wrist += math.hypot(lms[ti]['x'] - lms[wrist_idx]['x'], lms[ti]['y'] - lms[wrist_idx]['y'])
+        avg_dist_to_wrist /= 4
+        
+        # Threshold: Fist is usually < 0.2 approx (normalized). Spread hand > 0.3-0.4
+        # Note: landmark coords here from MediaPipe are normalized [0,1].
+        # Let's refine based on experience: ~0.1 to 0.15 is tight fist.
+        # Also ensure count_non_thumb is low <= 1 (allow one loose finger)
+        
+        if count_non_thumb <= 1 and avg_dist_to_wrist < 0.25:
+             # Additional check: Thumb shouldn't be fully extended out? 
+             # Actually Fist implies thumb over fingers or side.
+             return "Fist", 0.8
+        
         if count_non_thumb == 0:
             return "Fist", 0.8
 
