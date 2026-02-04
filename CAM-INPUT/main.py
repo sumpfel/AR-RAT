@@ -1,5 +1,4 @@
 import math
-
 import cv2
 import argparse
 import socket
@@ -97,7 +96,6 @@ def main():
     parser.add_argument("--cam_index", type=int, default=0, help="Camera Index")
     args = parser.parse_args()
 
-
     # UDP Setup
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     print(f"Targeting UDP {args.udp_ip}:{args.udp_port}")
@@ -188,15 +186,17 @@ def main():
             active_key = None
             if keyboard_view_active:
                 if udp_data['compound'] == "Move":
-                    if len(hands_list) == 2:
-                        x_coords = []
-                        y_coords = []
-                        for hand in hands_list:
-                            lms = hand["landmarks"]
+                    x_coords = []
+                    y_coords = []
+                    for hand in hands_list:
+                        lms = hand["landmarks"]
 
-                            x_coords.append(int(lms[8]['x'] * w))
-                            y_coords.append(int(lms[8]['y'] * h))
-                        v_keyboard.better_moving(x_coords, y_coords)
+                        x_coords.append(int(lms[8]['x'] * w))
+                        y_coords.append(int(lms[8]['y'] * h))
+                    v_keyboard.better_moving(x_coords, y_coords)
+                elif udp_data['compound'] == "Translate":
+                    print("I like to translate translate")
+
                 # Find Index Finger Tip (Landmark 8) of first hand (or search all)
                 # Let's support typing with ANY hand
                 for hand in hands_list:
@@ -210,7 +210,7 @@ def main():
 
                     # Check PINCH (Typing Trigger)
                     if classifier.is_pinching(lms) and not udp_data['compound'] == "Resize" and not udp_data['compound'] == "Move":
-                        if dist < 0.15:
+                        if dist > 0.15:
                             # Get Index Tip Coords (normalized)
                             idx_x = int(lms[8]['x'] * w)
                             idx_y = int(lms[8]['y'] * h)

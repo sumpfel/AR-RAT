@@ -118,10 +118,13 @@ class GestureClassifier:
         # Check for "Stop" / "No": All 5 fingers open.
         # Check thumb open: Tip 'far' from Index MCP (5)
         thumb_index_mcp_dist = math.hypot(thumb_tip['x'] - lms[5]['x'], thumb_tip['y'] - lms[5]['y'])
-        is_thumb_open = thumb_index_mcp_dist > 0.15 # Heuristic threshold
+        is_thumb_open = thumb_index_mcp_dist > 0.07 # Heuristic threshold
         
         if count_non_thumb == 4 and is_thumb_open:
             return "Stop", 0.9
+
+        if fingers_open[0] and is_thumb_open and not middle_open and not ring_open and not pinky_open:
+            return "L", 0.8
 
         # Check for "Point": Index open, others closed
         if fingers_open[0] and not middle_open and not ring_open and not pinky_open:
@@ -138,7 +141,7 @@ class GestureClassifier:
         # Check for "Fist": All closed
         if count_non_thumb == 0:
             return "Fist", 0.8
-            
+
         return "Unknown", 0.0
 
     def is_pinching(self, landmarks):
@@ -208,8 +211,11 @@ class GestureClassifier:
                 results["compound"] = "Resize"
             
             # "Move" / "Grab": Both Fist
-            elif g1 == "Fist" and g2 == "Fist":
+            elif g1 == "L" and g2 == "L":
                 results["compound"] = "Move"
+
+            elif g1 == "Fist" and g2 == "Fist":
+                results["compound"] = "Translate"
                 
         return results
 
