@@ -3,11 +3,79 @@ import argparse
 import socket
 import json
 import time
+import subprocess
+import re
+import os
+import shutil
+import numpy as np
 from camera_handler import CameraHandler
 from hand_detector import HandDetector
 from gesture_classifier import GestureClassifier
 
 from virtual_keyboard import VirtualKeyboard
+
+def get_screen_resolution():
+    try:
+        output = subprocess.check_output("xrandr | grep '*' | head -n1", shell=True).decode()
+        match = re.search(r"(\d+)x(\d+)", output)
+        if match:
+            return int(match.group(1)), int(match.group(2))
+    except:
+        pass
+    return 1920, 1080 # Fallback
+
+
+
+def set_window_geometry(name, x, y, w, h):
+    # Check for Hyprland
+    if shutil.which("hyprctl"):
+        try:
+            # Get Clients to find address and current state
+            output = subprocess.check_output(["hyprctl", "-j", "clients"], timeout=1).decode()
+            clients = json.loads(output)
+            
+            target_address = None
+            is_floating = False
+            
+            # Simple title match
+            for client in clients:
+                if client["title"] == name:
+                    target_address = client["address"]
+                    is_floating = client["floating"]
+                    break
+            
+            if target_address:
+                # 1. Ensure TILED (Not Floating) - User wants it to split the desktop
+                if is_floating:
+                    subprocess.run(["hyprctl", "dispatch", "setfloating", f"address:{target_address}"], stdout=subprocess.DEVNULL) # Toggle off? or Set?
+                    # hyprctl dispatch setfloating <opt> actually toggles if no arg, or sets?
+                    # "setfloating" acts as a toggle in typical bindings but let's be explicitly safe:
+                    # 'setfloating' sets floating status. 
+                    # Actually standard dispatch is `togglefloating`. 
+                    # But we want to FORCE Tiled.
+                    # We will assume `setfloating` without args toggles. 
+                    # If we use `setfloating 0`? No.
+                    # We will use `togglefloating` if it IS floating.
+                    subprocess.run(["hyprctl", "dispatch", "togglefloating", f"address:{target_address}"], stdout=subprocess.DEVNULL)
+                    print(f"Hyprland: Set {name} to TILED")
+                    time.sleep(0.1)
+
+                # 2. Attempt to move window DOWN to force bottom split
+                # This works in Dwindle (pushes new split down) or Master (swaps?)
+                # We try 'movewindow d' multiple times to reach bottom.
+                subprocess.run(["hyprctl", "dispatch", "movewindow", "d"], stdout=subprocess.DEVNULL)
+                subprocess.run(["hyprctl", "dispatch", "movewindow", "d"], stdout=subprocess.DEVNULL)
+                subprocess.run(["hyprctl", "dispatch", "movewindow", "d"], stdout=subprocess.DEVNULL)
+
+            else:
+                 # If window not found yet, maybe it's just created.
+                 pass
+        except Exception as e:
+            print(f"Hyprland Error: {e}")
+    else:
+        # Standard OpenCV / X11 / Windows
+        cv2.resizeWindow(name, w, h)
+        cv2.moveWindow(name, x, y)
 
 def main():
     parser = argparse.ArgumentParser(description="Hand Gesture Recognition UDP Sender")
@@ -17,9 +85,14 @@ def main():
     parser.add_argument("--cam_index", type=int, default=0, help="Camera Index")
     args = parser.parse_args()
 
+
     # UDP Setup
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     print(f"Targeting UDP {args.udp_ip}:{args.udp_port}")
+    
+    SCREEN_WIDTH, SCREEN_HEIGHT = get_screen_resolution()
+    print(f"Detected Screen Resolution: {SCREEN_WIDTH}x{SCREEN_HEIGHT}")
+    cv2.namedWindow("Hand Gesture Recognition", cv2.WINDOW_NORMAL)
 
     # Initialize Modules
     try:
@@ -87,23 +160,40 @@ def main():
                         keyboard_view_active = True
                         last_toggle_time = curr_time
                         print("Keyboard View: ON")
-                
+                        
+                        # Move to bottom half
+                        target_h = SCREEN_HEIGHT // 2
+                        set_window_geometry("Hand Gesture Recognition", 0, target_h, SCREEN_WIDTH, target_h)
+
                 # STOP -> Toggle Keyboard OFF
-                elif g["gesture"] == "Stop":
+                elif g["gesture"] == "Middle Finger":
                      # Reduce requirement for closing
                      if keyboard_view_active and (curr_time - last_toggle_time > toggle_cooldown):
                          should_close_keyboard = True
             
             # Typing Logic (Only if keyboard active)
+            # Typing Logic (Only if keyboard active)
             active_key = None
             if keyboard_view_active:
+                if udp_data['compound'] == "Move":
+                    if len(hands_list) == 2:
+                        x_coords = []
+                        y_coords = []
+                        for hand in hands_list:
+                            lms = hand["landmarks"]
+
+                            x_coords.append(int(lms[8]['x'] * w))
+                            y_coords.append(int(lms[8]['y'] * h))
+                        v_keyboard.better_moving(x_coords, y_coords)
                 # Find Index Finger Tip (Landmark 8) of first hand (or search all)
                 # Let's support typing with ANY hand
                 for hand in hands_list:
                      lms = hand["landmarks"]
-                     
+
+                    # cursor to finger
+
                      # Check PINCH (Typing Trigger)
-                     if classifier.is_pinching(lms):
+                     if classifier.is_pinching(lms) and not udp_data['compound'] == "Resize" and not udp_data['compound'] == "Move":
                          # Get Index Tip Coords (normalized)
                          idx_x = int(lms[8]['x'] * w)
                          idx_y = int(lms[8]['y'] * h)
@@ -133,11 +223,16 @@ def main():
                                  
                                  last_key_press_time = curr_time
         
-        # Apply Logic Changes (delayed to allow logic above to complete)
         if should_close_keyboard and (time.time() - last_toggle_time > toggle_cooldown):
              keyboard_view_active = False
              last_toggle_time = time.time()
              print("Keyboard View: OFF")
+             # Restore? Maybe stick to top right or center
+             # For now, let's just make it smaller and center it ? Or just leave it?
+             # User asked for split screen behavior. If OFF, maybe full screen or standard size?
+             # Let's restore a "normal" size
+             # Let's restore a "normal" size
+             set_window_geometry("Hand Gesture Recognition", (SCREEN_WIDTH-1280)//2, (SCREEN_HEIGHT-720)//2, 1280, 720)
 
         # Prepare Gesture UDP Packet
         # Clean data
@@ -157,6 +252,8 @@ def main():
                 v_keyboard.draw(frame, active_key)
             
             detector.draw_landmarks(frame, detection_result)
+
+            # frame is already the final frame
             
             y_offset = 70
             
@@ -170,12 +267,23 @@ def main():
                  text = f"{g['hand']}: {g['gesture']} ({g['confidence']:.2f})"
                  cv2.putText(frame, text, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                  y_offset += 30
-            
+
+            if hands_list:
+                i = 0
+                for hand in hands_list:
+                    lms = hand["landmarks"]
+
+                    idx_x = int(lms[4]['x'] * w)
+                    idx_y = int(lms[4]['y'] * h)
+                    #cv2.putText(frame, f"Hand Position {idx_x}", (10, y_offset + 50 + (i*40)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+                    #cv2.putText(frame, f"Hand Position {idx_y}", (10, y_offset + 70 + (i*40)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+                    i+=1
+
             # Display Mode & View Status
             cv2.putText(frame, f"Mode: {args.mode}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             if keyboard_view_active:
                 cv2.putText(frame, "KEYBOARD ACTIVE", (10, y_offset + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-                cv2.putText(frame, "Pinch to Type. Stop to Close.", (10, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+                cv2.putText(frame, "Pinch to Type. Middlefinger to Close.", (10, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
             
             cv2.imshow("Hand Gesture Recognition", frame)
             

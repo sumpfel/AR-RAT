@@ -149,8 +149,8 @@ class GestureClassifier:
         thumb_tip = landmarks[4]
         index_tip = landmarks[8]
         dist = math.hypot(thumb_tip['x'] - index_tip['x'], thumb_tip['y'] - index_tip['y'])
-        return dist < 0.05
-
+        dist_atleast = math.hypot(landmarks[8]['x']-landmarks[7]['x'], landmarks[8]['y']-landmarks[7]['y'])
+        return dist < dist_atleast*1.25
 
     def predict(self, hands_list):
         """

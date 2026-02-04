@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import platform
 from PIL import Image, ImageDraw, ImageFont
 
 class VirtualKeyboard:
@@ -7,6 +8,8 @@ class VirtualKeyboard:
         self.keys = []
         self.layout_mode = "default" # default, symbols, emojis
         self.key_size = 60
+        self.key_size_x = 60
+        self.key_size_y = 60
         self.spacing = 10
         self.start_x = 50
         self.start_y = 100
@@ -14,9 +17,9 @@ class VirtualKeyboard:
         # Layouts
         self.char_layouts = {
             "default": [
-                "QWERTYUIOP",
-                "ASDFGHJKL",
-                "ZXCVBNM"
+                "QWERTZUIOPÜ",
+                "ASDFGHJKLÖÄ",
+                "YXCVBNM,._"
             ],
             "symbols": [
                 "1234567890",
@@ -45,22 +48,22 @@ class VirtualKeyboard:
                     "char": char,
                     "x": x,
                     "y": y,
-                    "w": self.key_size,
-                    "h": self.key_size,
+                    "w": self.key_size_x,
+                    "h": self.key_size_y,
                     "type": "char"
                 })
-                x += self.key_size + self.spacing
-            y += self.key_size + self.spacing
+                x += self.key_size_x + self.spacing
+            y += self.key_size_y + self.spacing
             
         # Functional Row
         x = self.start_x
         func_keys = [
-            {"label": "DEL", "key": "BACKSPACE", "w": 80},
-            {"label": "ENTER", "key": "ENTER", "w": 100},
-            {"label": "SPACE", "key": "SPACE", "w": 200},
-            {"label": "?123", "key": "SWITCH_LAYOUT_SYM", "w": 80},
-            {"label": "😊", "key": "SWITCH_LAYOUT_EMO", "w": 60},
-            {"label": "TAB", "key": "TAB", "w": 60}
+            {"label": "DEL", "key": "BACKSPACE", "w": int(self.key_size_x*1.5)},
+            {"label": "ENTER", "key": "ENTER", "w": self.key_size_x*2},
+            {"label": "SPACE", "key": "SPACE", "w": self.key_size_x*5},
+            {"label": "?123", "key": "SWITCH_LAYOUT_SYM", "w": self.key_size_x*2},
+            {"label": "😊", "key": "SWITCH_LAYOUT_EMO", "w": self.key_size_x*2},
+            {"label": "TAB", "key": "TAB", "w": self.key_size_x*2}
         ]
         
         for k in func_keys:
@@ -70,7 +73,7 @@ class VirtualKeyboard:
                 "x": x,
                 "y": y,
                 "w": k["w"],
-                "h": self.key_size,
+                "h": self.key_size_y,
                 "type": "func"
             })
             x += k["w"] + self.spacing
@@ -86,10 +89,29 @@ class VirtualKeyboard:
         # Simple PIL load_default() doesn't support emojis well.
         # We need a TTF. Probing common paths.
         try:
-            # Try DejaVuSans or NotoSans
-            font = ImageFont.truetype("DejaVuSans.ttf", 20)
-            # Emoji font?
-            emoji_font = ImageFont.truetype("NotoColorEmoji.ttf", 20) # Often available on Linux
+            # Platform-independent font selection
+            system = platform.system()
+            if system == "Windows":
+                 font_name = "arial.ttf"
+                 emoji_font_name = "seguiemj.ttf" # Segoe UI Emoji
+            elif system == "Darwin": # macOS
+                 font_name = "Helvetica.ttc"
+                 emoji_font_name = "Apple Color Emoji.ttc"
+            else: # Linux
+                 font_name = "DejaVuSans.ttf" 
+                 # Noto Color Emoji is often not supported by PIL (bitmap), 
+                 # so we prefer DejaVuSans which has some B/W glyphs or standard NotoSans.
+                 # We try a few known ones.
+                 emoji_font_name = "DejaVuSans.ttf" 
+
+            font = ImageFont.truetype(font_name, 20)
+            
+            try:
+                emoji_font = ImageFont.truetype(emoji_font_name, 20)
+            except:
+                # Fallback for emoji font
+                emoji_font = font
+                
         except:
              font = ImageFont.load_default()
              emoji_font = font
@@ -143,12 +165,36 @@ class VirtualKeyboard:
         return None
         
     def switch_layout(self, target=None):
-        if target:
-            self.layout_mode = target
+         # Cycle default -> symbols -> default
+        if self.layout_mode == "default":
+            self.layout_mode = "symbols"
+        elif self.layout_mode == "symbols":
+            self.layout_mode = "emojis"
         else:
-             # Cycle default -> symbols -> default
-            if self.layout_mode == "default":
-                self.layout_mode = "symbols"
-            else:
-                self.layout_mode = "default"
+            self.layout_mode = "default"
+        self._refresh_keys()
+
+    def move(self, x, y):
+        self.start_x = x
+        self.start_y = y
+        self._refresh_keys()
+
+    def resize(self, coords_x, coords_y):
+        coords_x.sort()
+        coords_y.sort()
+        width = (coords_x[1]-coords_x[0])/11
+        heigth = (coords_y[1]-coords_y[0])/4
+        self.key_size_x = width
+        self.key_size_y = heigth
+        self._refresh_keys()
+
+    def better_moving(self, coords_x, coords_y):
+        coords_x.sort()
+        coords_y.sort()
+        width = (coords_x[1]-coords_x[0])/11
+        heigth = (coords_y[1]-coords_y[0])/4
+        self.key_size_x = width
+        self.key_size_y = heigth
+        self.start_x = coords_x[0]
+        self.start_y = coords_y[0]
         self._refresh_keys()
