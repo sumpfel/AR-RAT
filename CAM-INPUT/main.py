@@ -144,11 +144,16 @@ def main():
         detection_result = detector.process_frame(frame)
         hands_list = detector.get_landmarks_as_list(detection_result)
         
+        udp_data = {
+            "compound": "None",
+            "gestures": [],
+            "timestamp": time.time()
         }
 
         # ---------------------------------------------------------
         # HAND DETECTED
         # ---------------------------------------------------------
+        should_close_keyboard = False
         if hands_list:
             # Predict Gestures from Landmarks
             results = classifier.predict(hands_list)

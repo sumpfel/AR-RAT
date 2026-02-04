@@ -1,0 +1,8 @@
+PyQt6
+SpeechRecognition
+pyaudio
+edge-tts
+google-generativeai
+ollama
+opencv-python-headless
+pygame
