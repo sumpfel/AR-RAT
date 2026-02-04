@@ -1,3 +1,5 @@
+import math
+
 import cv2
 import argparse
 import socket
@@ -82,9 +84,10 @@ def set_window_geometry(name, x, y, w, h):
         except Exception as e:
             print(f"Hyprland Error: {e}")
     else:
+        pass
         # Standard OpenCV / X11 / Windows
-        cv2.resizeWindow(name, w, h)
-        cv2.moveWindow(name, x, y)
+        #cv2.resizeWindow(name, w, h)
+        #cv2.moveWindow(name, x, y)
 
 def main():
     parser = argparse.ArgumentParser(description="Hand Gesture Recognition UDP Sender")
@@ -197,41 +200,45 @@ def main():
                 # Find Index Finger Tip (Landmark 8) of first hand (or search all)
                 # Let's support typing with ANY hand
                 for hand in hands_list:
-                     lms = hand["landmarks"]
 
-                    # cursor to finger
+                    lms = hand["landmarks"]
 
-                     # Check PINCH (Typing Trigger)
-                     if classifier.is_pinching(lms) and not udp_data['compound'] == "Resize" and not udp_data['compound'] == "Move":
-                         # Get Index Tip Coords (normalized)
-                         idx_x = int(lms[8]['x'] * w)
-                         idx_y = int(lms[8]['y'] * h)
-                         
-                         # Check Key Hit
-                         key_hit = v_keyboard.get_key_at(idx_x, idx_y)
-                         
-                         if key_hit:
-                             active_key = key_hit
-                             # Send Key Event (Debounced)
-                             if curr_time - last_key_press_time > key_press_cooldown:
-                                 # Local Events
-                                 if key_hit == "SWITCH_LAYOUT_SYM":
-                                     v_keyboard.switch_layout("symbols")
-                                     print(f"Layout Switched: Symbols")
-                                 elif key_hit == "SWITCH_LAYOUT_EMO":
-                                     v_keyboard.switch_layout("emojis")
-                                     print(f"Layout Switched: Emojis")
-                                 else:
-                                     print(f"Typing: {key_hit}")
-                                     key_data = {
-                                         "type": "keydown",
-                                         "key": key_hit,
-                                         "timestamp": curr_time
-                                     }
-                                     sock.sendto(json.dumps(key_data).encode('utf-8'), (args.udp_ip, args.udp_port))
-                                 
-                                 last_key_press_time = curr_time
-        
+                    base = lms[0]
+                    index_base = lms[5]
+                    dist = math.hypot(base['x'] - index_base['x'], base['y'] - index_base['y'])
+                    cv2.putText(frame, f"Dist: {dist}", (10, 540), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+
+                    # Check PINCH (Typing Trigger)
+                    if classifier.is_pinching(lms) and not udp_data['compound'] == "Resize" and not udp_data['compound'] == "Move":
+                        if dist < 0.15:
+                            # Get Index Tip Coords (normalized)
+                            idx_x = int(lms[8]['x'] * w)
+                            idx_y = int(lms[8]['y'] * h)
+                            # Check Key Hit
+                            key_hit = v_keyboard.get_key_at(idx_x, idx_y)
+                            if key_hit:
+                                active_key = key_hit
+                                # Send Key Event (Debounced)
+                                if curr_time - last_key_press_time > key_press_cooldown:
+                                    # Local Events
+                                    if key_hit == "SWITCH_LAYOUT_SYM":
+                                        v_keyboard.switch_layout("symbols")
+                                        print(f"Layout Switched: Symbols")
+                                    elif key_hit == "SWITCH_LAYOUT_EMO":
+                                        v_keyboard.switch_layout("emojis")
+                                        print(f"Layout Switched: Emojis")
+                                    else:
+                                        print(f"Typing: {key_hit}")
+                                        key_data = {
+                                            "type": "keydown",
+                                            "key": key_hit,
+                                            "timestamp": curr_time
+                                        }
+                                        sock.sendto(json.dumps(key_data).encode('utf-8'), (args.udp_ip, args.udp_port))
+                                    last_key_press_time = curr_time
+                        else:
+                            cv2.putText(frame, f"HAND NOT CLOSE ENOUGH", (10, 500), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 3)
+
         if should_close_keyboard and (time.time() - last_toggle_time > toggle_cooldown):
              keyboard_view_active = False
              last_toggle_time = time.time()
@@ -276,17 +283,6 @@ def main():
                  text = f"{g['hand']}: {g['gesture']} ({g['confidence']:.2f})"
                  cv2.putText(frame, text, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                  y_offset += 30
-
-            if hands_list:
-                i = 0
-                for hand in hands_list:
-                    lms = hand["landmarks"]
-
-                    idx_x = int(lms[4]['x'] * w)
-                    idx_y = int(lms[4]['y'] * h)
-                    #cv2.putText(frame, f"Hand Position {idx_x}", (10, y_offset + 50 + (i*40)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-                    #cv2.putText(frame, f"Hand Position {idx_y}", (10, y_offset + 70 + (i*40)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-                    i+=1
 
             # Display Mode & View Status
             cv2.putText(frame, f"Mode: {args.mode}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
