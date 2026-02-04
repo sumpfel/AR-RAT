@@ -7,6 +7,7 @@ class VirtualKeyboard:
     def __init__(self):
         self.keys = []
         self.layout_mode = "default" # default, symbols, emojis
+        # --- CONFIGURATION ---
         self.key_size = 60
         self.key_size_x = 60
         self.key_size_y = 60
@@ -14,7 +15,8 @@ class VirtualKeyboard:
         self.start_x = 50
         self.start_y = 100
         
-        # Layouts
+        # --- KEY LAYOUTS ---
+        # Defines the rows for each layout mode
         self.char_layouts = {
             "default": [
                 "QWERTZUIOPÜ",
@@ -79,8 +81,11 @@ class VirtualKeyboard:
             x += k["w"] + self.spacing
 
     def draw(self, frame, active_key=None):
-        """Draws the keyboard on the frame using PIL for Unicode support."""
-        # Convert to PIL Image
+        """
+        Draws the keyboard overlay onto the given frame.
+        Uses PIL (Pillow) to render text because OpenCV putText has limited unicode support (no emojis).
+        """
+        # Convert to PIL Image (RGB)
         img_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         draw = ImageDraw.Draw(img_pil, 'RGBA')
         
@@ -98,15 +103,14 @@ class VirtualKeyboard:
                  font_name = "Helvetica.ttc"
                  emoji_font_name = "Apple Color Emoji.ttc"
             else: # Linux
+                 # Use standard Dejavu Sans which is widely available and supports basic unicode emojis
                  font_name = "DejaVuSans.ttf" 
-                 # Noto Color Emoji is often not supported by PIL (bitmap), 
-                 # so we prefer DejaVuSans which has some B/W glyphs or standard NotoSans.
-                 # We try a few known ones.
                  emoji_font_name = "DejaVuSans.ttf" 
 
             font = ImageFont.truetype(font_name, 20)
             
             try:
+                # Attempt to load the specific emoji font, fallback to standard font if failed
                 emoji_font = ImageFont.truetype(emoji_font_name, 20)
             except:
                 # Fallback for emoji font

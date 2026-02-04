@@ -26,7 +26,16 @@ def get_screen_resolution():
 
 
 
+
+# ---------------------------------------------------------------------
+# WINDOW MANAGEMENT HELPER
+# ---------------------------------------------------------------------
+
 def set_window_geometry(name, x, y, w, h):
+    """
+    Moves and resizes the application window.
+    Includes specific logic for Hyprland to force tiling and visibility.
+    """
     # Check for Hyprland
     if shutil.which("hyprctl"):
         try:
@@ -45,12 +54,12 @@ def set_window_geometry(name, x, y, w, h):
                     break
             
             if target_address:
-                # 1. Ensure TILED (Not Floating) - User wants it to split the desktop
+                # 1. Ensure TILED (Not Floating) 
+                # Hyprland may spawn it floating by default. We want it to take up space in the layout (Tiled).
                 if is_floating:
                     subprocess.run(["hyprctl", "dispatch", "setfloating", f"address:{target_address}"], stdout=subprocess.DEVNULL) # Toggle off? or Set?
-                    # hyprctl dispatch setfloating <opt> actually toggles if no arg, or sets?
-                    # "setfloating" acts as a toggle in typical bindings but let's be explicitly safe:
-                    # 'setfloating' sets floating status. 
+                    # "setfloating" with specific target usually toggles in dispatch context if no arg provided.
+                    # We call togglefloating explicitly to change state. 
                     # Actually standard dispatch is `togglefloating`. 
                     # But we want to FORCE Tiled.
                     # We will assume `setfloating` without args toggles. 
@@ -94,7 +103,8 @@ def main():
     print(f"Detected Screen Resolution: {SCREEN_WIDTH}x{SCREEN_HEIGHT}")
     cv2.namedWindow("Hand Gesture Recognition", cv2.WINDOW_NORMAL)
 
-    # Initialize Modules
+    # --- INITIALIZATION ---
+    # Camera Setup
     try:
         cam = CameraHandler(args.cam_index)
         cam.start()
@@ -134,19 +144,13 @@ def main():
         detection_result = detector.process_frame(frame)
         hands_list = detector.get_landmarks_as_list(detection_result)
         
-        udp_data = {
-            "compound": "None",
-            "gestures": [],
-            "timestamp": time.time()
         }
 
-        # Handle Interaction Layer (Keyboard) - BEFORE classifier or parallel
-        # We need landmarks for interaction
-        
-        should_close_keyboard = False
-
+        # ---------------------------------------------------------
+        # HAND DETECTED
+        # ---------------------------------------------------------
         if hands_list:
-            # Predict Gestures
+            # Predict Gestures from Landmarks
             results = classifier.predict(hands_list)
             udp_data.update(results)
             
