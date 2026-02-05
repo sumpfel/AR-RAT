@@ -76,21 +76,20 @@ class HandDetector:
             
         return hands_list
 
-    def draw_landmarks(self, frame, detection_result):
-        """Draws landmarks on the frame."""
-        if not detection_result or not detection_result.hand_landmarks:
+    def draw_landmarks(self, frame, hands_list):
+        """Draws filtered landmarks on the frame."""
+        if not hands_list:
             return
 
-        # Simple manual drawing since mp.solutions.drawing_utils might be missing/incompatible
         h, w, _ = frame.shape
-        for hand_landmarks in detection_result.hand_landmarks:
+        for hand in hands_list:
+            hand_landmarks = hand["landmarks"]
             # Draw points
             for lm in hand_landmarks:
-                cx, cy = int(lm.x * w), int(lm.y * h)
+                cx, cy = int(lm['x'] * w), int(lm['y'] * h)
                 cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
             
-            # Draw connections (using standard MediaPipe connections)
-            # HARDCODED connections since solutions.hands might be missing
+            # Connections
             connections = [
                 (0,1), (1,2), (2,3), (3,4),       # Thumb
                 (0,5), (5,6), (6,7), (7,8),       # Index
@@ -100,8 +99,7 @@ class HandDetector:
                 (0,17) # Wrist to Pinky Base
             ]
             
-            # Map landmarks to pixel coords first for easier drawing
-            coords = [(int(lm.x * w), int(lm.y * h)) for lm in hand_landmarks]
+            coords = [(int(lm['x'] * w), int(lm['y'] * h)) for lm in hand_landmarks]
             
             for start_idx, end_idx in connections:
                 cv2.line(frame, coords[start_idx], coords[end_idx], (0, 255, 0), 2)

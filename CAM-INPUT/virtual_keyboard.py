@@ -24,7 +24,7 @@ class VirtualKeyboard:
             "default": [
                 "QWERTZUIOPÜ",
                 "ASDFGHJKLÖÄ",
-                "YXCVBNM,._#"
+                "YXCVBNM,.?!"
             ],
             "symbols": [
                 "1234567890",
