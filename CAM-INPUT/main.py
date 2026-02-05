@@ -9,6 +9,7 @@ import re
 import os
 import shutil
 import numpy as np
+from datetime import datetime
 from camera_handler import CameraHandler
 from hand_detector import HandDetector
 from gesture_classifier import GestureClassifier
@@ -195,9 +196,11 @@ def main():
                         y_coords.append(int(lms[8]['y'] * h))
                     v_keyboard.better_moving(x_coords, y_coords)
                 elif udp_data['compound'] == "Translate":
-                    print("I like to translate translate")
+                    filename = datetime.now().strftime("screenshots/frame_%Y%m%d_%H%M%S.jpg")
+                    cv2.imwrite(filename, frame)
 
-                # Find Index Finger Tip (Landmark 8) of first hand (or search all)
+                # Find In
+                # ,dex Finger Tip (Landmark 8) of first hand (or search all)
                 # Let's support typing with ANY hand
                 for hand in hands_list:
 

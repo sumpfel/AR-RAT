@@ -12,6 +12,9 @@ class VirtualKeyboard:
         self.key_size_x = 60
         self.key_size_y = 60
         self.spacing = 10
+        self.spacing_x = 10
+        self.spacing_y = 10
+        self.spacing_x_func_keys = 15
         self.start_x = 50
         self.start_y = 100
         
@@ -21,7 +24,7 @@ class VirtualKeyboard:
             "default": [
                 "QWERTZUIOPÜ",
                 "ASDFGHJKLÖÄ",
-                "YXCVBNM,._"
+                "YXCVBNM,._#"
             ],
             "symbols": [
                 "1234567890",
@@ -44,7 +47,7 @@ class VirtualKeyboard:
         current_rows = self.char_layouts.get(self.layout_mode, self.char_layouts["default"])
         
         for row_idx, row in enumerate(current_rows):
-            x = self.start_x + (row_idx * 30)
+            x = self.start_x
             for char in row:
                 self.keys.append({
                     "char": char,
@@ -54,18 +57,17 @@ class VirtualKeyboard:
                     "h": self.key_size_y,
                     "type": "char"
                 })
-                x += self.key_size_x + self.spacing
-            y += self.key_size_y + self.spacing
+                x += self.key_size_x + self.spacing_x
+            y += self.key_size_y + self.spacing_y
             
         # Functional Row
         x = self.start_x
         func_keys = [
             {"label": "DEL", "key": "BACKSPACE", "w": int(self.key_size_x*1.5)},
-            {"label": "ENTER", "key": "ENTER", "w": self.key_size_x*2},
-            {"label": "SPACE", "key": "SPACE", "w": self.key_size_x*5},
-            {"label": "?123", "key": "SWITCH_LAYOUT_SYM", "w": self.key_size_x*2},
-            {"label": "😊", "key": "SWITCH_LAYOUT_EMO", "w": self.key_size_x*2},
-            {"label": "TAB", "key": "TAB", "w": self.key_size_x*2}
+            {"label": "ENTER", "key": "ENTER", "w": self.key_size_x*1.75},
+            {"label": "SPACE", "key": "SPACE", "w": self.key_size_x*4.5},
+            {"label": "?123", "key": "SWITCH_LAYOUT_SYM", "w": self.key_size_x*1.5},
+            {"label": "TAB", "key": "TAB", "w": self.key_size_x*1.75}
         ]
         
         for k in func_keys:
@@ -78,7 +80,7 @@ class VirtualKeyboard:
                 "h": self.key_size_y,
                 "type": "func"
             })
-            x += k["w"] + self.spacing
+            x += k["w"] + self.spacing_x_func_keys
 
     def draw(self, frame, active_key=None):
         """
@@ -195,10 +197,14 @@ class VirtualKeyboard:
     def better_moving(self, coords_x, coords_y):
         coords_x.sort()
         coords_y.sort()
-        width = (coords_x[1]-coords_x[0])/11
-        heigth = (coords_y[1]-coords_y[0])/4
-        self.key_size_x = width
-        self.key_size_y = heigth
+        width_total = coords_x[1]-coords_x[0]
+        heigth_total = coords_y[1]-coords_y[0]
+
+        self.key_size_x = width_total / (10 + 9/6)
+        self.key_size_y = heigth_total / (4 + 3/6)
+        self.spacing_x = self.key_size_x/6
+        self.spacing_y = self.key_size_y/6
+        self.spacing_x_func_keys = self.key_size_x/6
         self.start_x = coords_x[0]
         self.start_y = coords_y[0]
         self._refresh_keys()
