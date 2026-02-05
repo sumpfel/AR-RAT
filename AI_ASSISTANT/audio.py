@@ -29,13 +29,13 @@ class AudioHandler:
             return ""
 
     async def _generate_speech(self, text, voice="en-US-AriaNeural"):
+        import time
+        t = int(time.time() * 1000)
+        output_file = os.path.join(tempfile.gettempdir(), f"ai_assist_output_{t}.mp3")
+        
         communicate = edge_tts.Communicate(text, voice)
-        if os.path.exists(self.voice_output_file):
-            try:
-                os.remove(self.voice_output_file)
-            except:
-                pass
-        await communicate.save(self.voice_output_file)
+        await communicate.save(output_file)
+        return output_file
 
     def generate_speech_file(self, text, voice="en-US-AriaNeural", callback=None):
         """
@@ -43,9 +43,13 @@ class AudioHandler:
         """
         def run_gen():
             try:
-                asyncio.run(self._generate_speech(text, voice))
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                output_file = loop.run_until_complete(self._generate_speech(text, voice))
+                loop.close()
+                
                 if callback:
-                    callback(self.voice_output_file)
+                    callback(output_file)
             except Exception as e:
                 print(f"TTS Error: {e}")
                 if callback:

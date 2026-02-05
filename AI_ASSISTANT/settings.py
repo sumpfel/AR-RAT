@@ -27,8 +27,15 @@ class SettingsDialog(QDialog):
         self.ollama_model.setText("llama3")
         self.form_layout.addRow("Ollama Model:", self.ollama_model)
         
-        self.voice_name = QLineEdit()
-        self.voice_name.setText("en-US-AriaNeural") 
+        self.voice_name = QComboBox()
+        self.voice_name.addItems([
+            "en-US-AriaNeural", 
+            "en-US-ChristopherNeural", 
+            "en-US-GuyNeural", 
+            "en-GB-SoniaNeural",
+            "ja-JP-NanamiNeural",
+            "fr-FR-DeniseNeural"
+        ])
         self.form_layout.addRow("Voice (edge-tts):", self.voice_name)
 
         self.layout.addLayout(self.form_layout)
@@ -54,7 +61,12 @@ class SettingsDialog(QDialog):
                     self.model_type.setCurrentText(data.get("model_type", "ollama"))
                     self.gemini_key.setText(data.get("gemini_key", ""))
                     self.ollama_model.setText(data.get("ollama_model", "llama3"))
-                    self.voice_name.setText(data.get("voice", "en-US-AriaNeural"))
+                    voice = data.get("voice", "en-US-AriaNeural")
+                    idx = self.voice_name.findText(voice)
+                    if idx >= 0:
+                        self.voice_name.setCurrentIndex(idx)
+                    else:
+                         self.voice_name.setCurrentText(voice) or self.voice_name.setEditText(voice) if self.voice_name.isEditable() else None
             except Exception as e:
                 print(f"Error loading settings: {e}")
 
@@ -63,7 +75,7 @@ class SettingsDialog(QDialog):
             "model_type": self.model_type.currentText(),
             "gemini_key": self.gemini_key.text(),
             "ollama_model": self.ollama_model.text(),
-            "voice": self.voice_name.text()
+            "voice": self.voice_name.currentText()
         }
         try:
             with open(SETTINGS_FILE, "w") as f:

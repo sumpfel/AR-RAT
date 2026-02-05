@@ -1,14 +1,18 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
-from PyQt6.QtCore import Qt, QTimer, QRect, QPoint
-from PyQt6.QtGui import QPixmap, QPainter, QColor, QPen, QImage
+from PyQt6.QtCore import Qt, QTimer, QRect, QPoint, QPointF, pyqtSignal
+from PyQt6.QtGui import QPixmap, QPainter, QColor, QPen, QImage, QPainterPath, QBrush, QMovie
+
 import os
 import cv2
 import random
 import json
 import shutil
 import numpy as np
+import math
 
 class AvatarWidget(QWidget):
+    mouthPositionChanged = pyqtSignal(QPoint)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -22,19 +26,19 @@ class AvatarWidget(QWidget):
         # Assets
         self.waifu_dir = os.path.join(base_dir, "assets", "waifus")
         self.mouth_dir = os.path.join(base_dir, "assets", "mouths")
-        self.emotion_dir = os.path.join(base_dir, "assets", "emotions")
+        # We replace image-based emotions with procedural drawing
         
         self.mouth_images = {}
-        self.emotion_images = {}
         self.load_assets()
         
         # State
         self.current_waifu_path = None
         self.current_waifu_pixmap = None
         
-        # Video State
+        # Video/GIF State
         self.is_video = False
         self.video_cap = None
+        self.movie = None # QMovie for GIFs
         self.video_timer = QTimer()
         self.video_timer.timeout.connect(self.update_video_frame)
 
@@ -53,19 +57,15 @@ class AvatarWidget(QWidget):
 
     def load_assets(self):
         # Load mouth images
-        for name in ["closed", "open", "wide"]:
+        self.mouth_images = {}
+        # Expected vowels and shapes
+        vowels = ["a", "e", "i", "o", "u", "closed", "open", "wide"]
+        for name in vowels:
             path = os.path.join(self.mouth_dir, f"{name}.png")
             if os.path.exists(path):
                 self.mouth_images[name] = QPixmap(path)
         
-        # Load emotion images
-        for name in ["angry", "sad", "sweat", "blush"]:
-            path = os.path.join(self.emotion_dir, f"{name}.png")
-            if os.path.exists(path):
-                self.emotion_images[name] = QPixmap(path)
-        
     def pick_random_waifu(self):
-        # Pick random image or video
         if not os.path.exists(self.waifu_dir):
             return
 
@@ -82,29 +82,49 @@ class AvatarWidget(QWidget):
 
         self.current_waifu_path = path
         
+        # Clean up old
+        if self.video_cap:
+            self.video_cap.release()
+            self.video_cap = None
+        if self.movie:
+            self.movie.stop()
+            self.movie = None
+        self.video_timer.stop()
+        
         ext = os.path.splitext(path)[1].lower()
-        if ext in ['.mp4', '.webm', '.gif', '.mkv']:
+        
+        if ext == '.gif':
+            # Use QMovie for GIF (Supports transparency)
             self.is_video = True
-            if self.video_cap:
-                self.video_cap.release()
+            self.movie = QMovie(path)
+            self.movie.frameChanged.connect(self.update_movie_frame)
+            self.movie.start()
+            # Initial frame
+            self.movie.jumpToFrame(0)
+            self.update_movie_frame()
+            
+        elif ext in ['.mp4', '.webm', '.mkv']:
+            # Use OpenCV for video files
+            self.is_video = True
             self.video_cap = cv2.VideoCapture(path)
             self.video_timer.start(33) # ~30 FPS
-            # Try to read one frame to set pixmap for sizing
             ret, frame = self.video_cap.read()
             if ret:
                 self.set_frame_pixmap(frame)
                 self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0) # Reset
         else:
+            # Static Image
             self.is_video = False
-            self.video_timer.stop()
-            if self.video_cap:
-                self.video_cap.release()
-                self.video_cap = None
-            
             self.current_waifu_pixmap = QPixmap(path)
             self.load_calibration()
-        
-        self.update()
+    
+    def update_movie_frame(self):
+        if self.movie:
+            self.current_waifu_pixmap = self.movie.currentPixmap()
+            # If movie just started/changed, we might need to load calibration
+            if self.mouth_rect is None:
+                 self.load_calibration()
+            self.update()
 
     def update_video_frame(self):
         if not self.is_video or not self.video_cap:
@@ -112,7 +132,6 @@ class AvatarWidget(QWidget):
             
         ret, frame = self.video_cap.read()
         if not ret:
-            # Loop
             self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             ret, frame = self.video_cap.read()
             if not ret: return
@@ -121,15 +140,11 @@ class AvatarWidget(QWidget):
         self.update()
 
     def set_frame_pixmap(self, frame):
-        # Handle alpha channel if present (4 channels)
         height, width = frame.shape[:2]
-        
         if frame.shape[2] == 4:
-            # BGRA to RGBA
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2RGBA)
             fmt = QImage.Format.Format_RGBA8888
         else:
-            # BGR to RGB
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             fmt = QImage.Format.Format_RGB888
             
@@ -149,11 +164,7 @@ class AvatarWidget(QWidget):
             self.detect_face_and_mouth()
 
     def detect_face_and_mouth(self):
-        # We need an image to detect on.
-        # If video, detection is expensive every frame, so we might skip it or detect on first frame
         if self.is_video:
-            # For video, default to no mouth or maybe center?
-            # It's better to let user calibrate video mouth manually if they want it
             self.mouth_rect = None 
             return
 
@@ -193,7 +204,6 @@ class AvatarWidget(QWidget):
     def toggle_calibration_mode(self):
         self.calibration_mode = not self.calibration_mode
         if self.calibration_mode and self.is_video and not self.mouth_rect and self.current_waifu_pixmap:
-             # If starting calibration on video and no mouth exists, start at center
              w, h = self.current_waifu_pixmap.width(), self.current_waifu_pixmap.height()
              self.mouth_rect = (w//2 - 50, h//2 - 25, 100, 50)
              
@@ -228,7 +238,6 @@ class AvatarWidget(QWidget):
             
             self.mouth_rect = (new_mx, new_my, current_w, current_h)
             
-            # Save calibration for video too
             if self.current_waifu_path:
                 json_path = self.current_waifu_path + ".json"
                 try:
@@ -241,6 +250,36 @@ class AvatarWidget(QWidget):
         
         super().mousePressEvent(event)
 
+    def wheelEvent(self, event):
+        if self.calibration_mode and self.mouth_rect:
+             delta = event.angleDelta().y()
+             scale_factor = 1.1 if delta > 0 else 0.9
+             
+             mx, my, mw, mh = self.mouth_rect
+             
+             # Scale around center
+             center_x = mx + mw / 2
+             center_y = my + mh / 2
+             
+             new_w = max(10, int(mw * scale_factor))
+             new_h = max(5, int(mh * scale_factor))
+             
+             new_mx = int(center_x - new_w / 2)
+             new_my = int(center_y - new_h / 2)
+             
+             self.mouth_rect = (new_mx, new_my, new_w, new_h)
+
+             if self.current_waifu_path:
+                json_path = self.current_waifu_path + ".json"
+                try:
+                    with open(json_path, 'w') as f:
+                        json.dump({"mouth_rect": self.mouth_rect}, f)
+                except Exception as e:
+                    print(f"Failed to save calibration: {e}")
+             
+             self.update()
+
+
     def set_state(self, state):
         self.state = state
         if state == "talking":
@@ -252,13 +291,12 @@ class AvatarWidget(QWidget):
     def set_emotion(self, emotion):
         self.emotion = emotion
         if emotion:
-            # Auto-clear emotion after 5 seconds
             QTimer.singleShot(5000, lambda: self.set_emotion(None))
         self.update()
 
     def update_animation(self):
         self.animation_frame += 1
-        self.update() # Trigger repaint
+        self.update() 
 
     def paintEvent(self, event):
         if not self.current_waifu_pixmap:
@@ -266,8 +304,8 @@ class AvatarWidget(QWidget):
             
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # Scaling
         widget_size = self.size()
         scaled_pixmap = self.current_waifu_pixmap.scaled(widget_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         
@@ -276,17 +314,18 @@ class AvatarWidget(QWidget):
         
         painter.drawPixmap(x_off, y_off, scaled_pixmap)
         
+        mouth_center_for_signal = None
+
+        # Define dimensions early
+        orig_w = self.current_waifu_pixmap.width()
+        orig_h = self.current_waifu_pixmap.height()
+        if orig_w == 0 or orig_h == 0: return
+
+        scale_x = scaled_pixmap.width() / orig_w
+        scale_y = scaled_pixmap.height() / orig_h
+
         # Draw Mouth
         if self.mouth_rect:
-            # Logic similar to before
-            orig_w = self.current_waifu_pixmap.width()
-            orig_h = self.current_waifu_pixmap.height()
-            
-            if orig_w == 0 or orig_h == 0: return # avoid div by zero
-
-            scale_x = scaled_pixmap.width() / orig_w
-            scale_y = scaled_pixmap.height() / orig_h
-            
             mx, my, mw, mh = self.mouth_rect
             
             dest_x = x_off + int(mx * scale_x)
@@ -294,90 +333,170 @@ class AvatarWidget(QWidget):
             dest_w = int(mw * scale_x)
             dest_h = int(mh * scale_y)
             
+            mouth_center_for_signal = QPoint(dest_x + dest_w//2, dest_y)
+
             mouth_name = "closed"
             should_draw_mouth = False
 
             if self.state == "talking":
-                cycle = ["closed", "open", "wide", "open"]
-                mouth_name = cycle[self.animation_frame % len(cycle)]
+                # Simulated Lip Sync: Random vowels
+                # We use animation_frame to control speed, but we want randomness.
+                # Every few frames change the vowel
+                if self.animation_frame % 2 == 0:
+                    vowels = ["a", "e", "i", "o", "u"]
+                    # Filter available ones
+                    available = [v for v in vowels if v in self.mouth_images]
+                    if not available: available = ["open", "wide"] # Fallback
+                    
+                    # Choose pseudo-randomly based on frame to be deterministic per frame but chaotic
+                    idx = (self.animation_frame * 7) % len(available)
+                    self.current_mouth_name = available[idx] 
+                
+                mouth_name = getattr(self, "current_mouth_name", "a")
                 should_draw_mouth = True
             
             if self.calibration_mode:
                 pen = QPen(QColor(255, 0, 0), 2)
                 painter.setPen(pen)
                 painter.drawRect(dest_x, dest_y, dest_w, dest_h)
-                mouth_name = "open"
+                mouth_name = "a" # Use 'a' for calibration (open mouth)
                 should_draw_mouth = True
 
             elif self.state == "idle" and not self.is_video:
                 mouth_name = "closed"
                 should_draw_mouth = True
             
-            if should_draw_mouth and mouth_name in self.mouth_images:
-                mouth_pix = self.mouth_images[mouth_name]
-                painter.drawPixmap(QRect(dest_x, dest_y, dest_w, dest_h), mouth_pix)
+            if should_draw_mouth:
+                # Fallback if specific vowel missing
+                if mouth_name not in self.mouth_images:
+                     if "open" in self.mouth_images and mouth_name != "closed": mouth_name = "open"
+                     elif "closed" in self.mouth_images: mouth_name = "closed"
+                
+                if mouth_name in self.mouth_images:
+                    mouth_pix = self.mouth_images[mouth_name]
+                    painter.drawPixmap(QRect(dest_x, dest_y, dest_w, dest_h), mouth_pix)
 
-        # Draw Emotion Overlay
-        if self.emotion and self.emotion in self.emotion_images:
-            emo_pix = self.emotion_images[self.emotion]
-            
-            # Position logic
-            if self.mouth_rect:
-                 mx, my, mw, mh = self.mouth_rect
-            else:
-                 mx, my, mw, mh = (orig_w//2, orig_h//2, 50, 50)
+        # Emit mouth center for bubble tail
+        if mouth_center_for_signal:
+            self.mouthPositionChanged.emit(mouth_center_for_signal)
+        else:
+             # Default to center of image if no mouth
+             self.mouthPositionChanged.emit(QPoint(x_off + scaled_pixmap.width()//2, y_off + scaled_pixmap.height()//2))
 
-            scale_x = scaled_pixmap.width() / orig_w
-            scale_y = scaled_pixmap.height() / orig_h
+        # Programmatic Expressions (Fixes background issue)
+        if self.emotion:
+            # Re-read face positions
+            mx, my, mw, mh = self.mouth_rect if self.mouth_rect else (orig_w//2, orig_h//2, 50, 50)
             
             screen_mx = x_off + int(mx * scale_x)
             screen_my = y_off + int(my * scale_y)
+            screen_mw = int(mw * scale_x)
             
-            t = self.animation_frame # Time factor
-            
+            t = self.animation_frame
+
             if self.emotion == "angry":
-                # Pulse size
-                pulse = 1.0 + 0.1 * np.sin(t * 0.5) 
-                w = int(100 * pulse)
-                h = int(100 * pulse)
-                x = screen_mx + int(100 * scale_x) 
-                y = screen_my - int(150 * scale_y) 
-                painter.drawPixmap(QRect(x, y, w, h), emo_pix)
+                # Draw Red Anger Mark (Veins)
+                # Usually top right
+                cx = screen_mx + int(screen_mw * 2.5)
+                cy = screen_my - int(screen_mw * 1.5)
+                size = 40 + 5 * math.sin(t * 0.5)
                 
+                painter.setPen(QPen(QColor(220, 0, 0), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                
+                # Draw # shape with curves
+                #      /   \
+                #     /     \
+                #    /       \
+                #   /   \ /   \
+                #       X
+                #   \  / \  /
+                
+                # Simplified "Vein" mark: 4 curves radiating from center
+                for angle in [45, 135, 225, 315]:
+                    rad = math.radians(angle)
+                    p1 = QPointF(cx + math.cos(rad)*10, cy + math.sin(rad)*10)
+                    p2 = QPointF(cx + math.cos(rad)*size, cy + math.sin(rad)*size)
+                    
+                    path = QPainterPath()
+                    path.moveTo(p1)
+                    # Add a curve to make it look organic
+                    ctrl = QPointF(cx + math.cos(rad+0.2)*size*0.5, cy + math.sin(rad+0.2)*size*0.5)
+                    path.quadTo(ctrl, p2)
+                    painter.drawPath(path)
+
             elif self.emotion == "sweat":
-                # Slide down
-                slide = (t * 2) % 20
-                w = 80
-                h = 100
-                x = screen_mx + int(120 * scale_x) 
-                y = screen_my - int(100 * scale_y) + slide
-                painter.drawPixmap(QRect(x, y, w, h), emo_pix)
-                
+                 # Draw Blue Sweat Drop
+                 # Side of head
+                 sx = screen_mx + int(screen_mw * 2.0)
+                 sy = screen_my - int(screen_mw * 1.0)
+                 slide = (t * 2) % 20
+                 sy += int(slide)
+                 
+                 w = 30
+                 h = 50
+                 
+                 path = QPainterPath()
+                 path.moveTo(sx, sy) # Top tip
+                 path.cubicTo(sx + w, sy + h, sx - w, sy + h, sx, sy) # Bottom bulb
+                 
+                 painter.setBrush(QBrush(QColor(100, 200, 255)))
+                 painter.setPen(QPen(QColor(50, 100, 200), 2))
+                 painter.drawPath(path)
+                 
+                 # Shine
+                 painter.setBrush(QBrush(QColor(255, 255, 255)))
+                 painter.setPen(Qt.PenStyle.NoPen)
+                 painter.drawEllipse(sx - 5, sy + 30, 6, 10)
+
             elif self.emotion == "sad":
-                # Tears
-                w = 150
-                h = 150
-                x = screen_mx - int(w/2) 
-                y = screen_my - int(100 * scale_y) 
-                painter.drawPixmap(QRect(x, y, w, h), emo_pix)
-            
+                # Tears Streaming down from "eyes" (approx above mouth)
+                # Two streams
+                eye_y = screen_my - int(screen_mw * 1.2)
+                eye_x_left = screen_mx - int(screen_mw * 0.8)
+                eye_x_right = screen_mx + int(screen_mw * 1.8) # Mouth is usually strictly center? assume mouth x is left corner? 
+                # Actually mouth_rect x is left corner. so center is x + w/2
+                center_x = screen_mx + screen_mw // 2
+                eye_dist = int(screen_mw * 1.5)
+                eye_x_left = center_x - eye_dist
+                eye_x_right = center_x + eye_dist
+                
+                painter.setBrush(QBrush(QColor(150, 220, 255, 200)))
+                painter.setPen(Qt.PenStyle.NoPen)
+                
+                slide = (t * 5) % 30
+                
+                for ex in [eye_x_left, eye_x_right]:
+                     # Draw stream
+                     path = QPainterPath()
+                     path.moveTo(ex, eye_y)
+                     path.quadTo(ex - 5, eye_y + 50 + slide, ex, eye_y + 100 + slide)
+                     path.quadTo(ex + 5, eye_y + 50 + slide, ex, eye_y)
+                     painter.drawPath(path)
+
             elif self.emotion == "blush":
-                # Blush - Should be on cheeks, likely two spots or one central if it's a "strip"
-                # The generated asset is two circles. So center it horizontally on mouth, but higher up.
-                w = 200 # It's a pair of cheeks usually
-                h = 100
-                x = screen_mx - int(w/2) + int(mw * scale_x / 2) # Center on mouth's center x
-                y = screen_my - int(80 * scale_y) # Above mouth
+                # Pink ellipses on cheeks
+                center_x = screen_mx + screen_mw // 2
+                cheek_y = screen_my - int(screen_mw * 0.5)
+                dist = int(screen_mw * 1.5)
                 
-                # Check aspect ratio
-                # If image is wide, keep aspect
-                e_w, e_h = emo_pix.width(), emo_pix.height()
-                aspect = e_w / e_h
-                h = int(w / aspect)
+                painter.setBrush(QBrush(QColor(255, 100, 100, 100))) # Transparent pink
+                painter.setPen(Qt.PenStyle.NoPen)
                 
-                painter.setOpacity(0.7) # Slight transparency for blush
-                painter.drawPixmap(QRect(x, y+10, w, h), emo_pix)
-                painter.setOpacity(1.0)
+                # Left cheek
+                painter.drawEllipse(QPointF(center_x - dist, cheek_y), 20, 15)
+                # Right cheek
+                painter.drawEllipse(QPointF(center_x + dist, cheek_y), 20, 15)
+                
+                # Lines
+                painter.setPen(QPen(QColor(255, 50, 50, 150), 2))
+                for i in range(3):
+                    # diagonal lines
+                    x = center_x - dist - 15 + i*10
+                    y = cheek_y - 10
+                    painter.drawLine(x, y, x-5, y+20)
+                    
+                    x = center_x + dist - 15 + i*10
+                    painter.drawLine(x, y, x-5, y+20)
 
         if self.calibration_mode:
              painter.setPen(QPen(QColor(0, 255, 0), 2))

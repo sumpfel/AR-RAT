@@ -18,16 +18,24 @@ class AIBackend:
             self.ollama_model = kwargs.get("model", "llama3")
 
     def generate_response(self, user_input):
-        # Wrap prompt with system instructions
+        # Relaxed prompt to encourage emotions
+        
         system_instruction = (
-            f"User input: \"{user_input}\"\n"
-            "Instructions: Answer in character as an anime assistant. Keep it brief (max 3 sentences). "
-            "ONLY if the input/situation strongly calls for an emotion (like if you are insulted, embarrassed, or sad), "
-            "append one of these tags: ~~expression:angry, ~~expression:sad, ~~expression:sweat, ~~expression:blush. "
-            "DO NOT use a tag for normal conversation (like 'hello' or questions). "
-            "Example: 'I-I'm not blushing! ~~expression:blush'"
+            f"User said: \"{user_input}\"\n"
+            "Roleplay as an anime character assistant.\n"
+            "Keep answers short (max 2 sentences).\n"
+            "You MUST use an expression if the context fits even slightly. DO NOT BE SHY.\n"
+            "Available tags: ~~expression:angry, ~~expression:sad, ~~expression:sweat, ~~expression:blush.\n"
+            "Examples:\n"
+            " 'That's mean! ~~expression:angry'\n"
+            " 'Oh my... ~~expression:blush'\n"
+            " 'I don't know what to do. ~~expression:sweat'\n"
+            " 'I really hate this! ~~expression:angry'\n"
+            "Answer now:"
         )
         
+        # Note: We append this to history as a new "user" message for simplicity in this MVP.
+        # Ideally we'd set a system message once, but this works for single-turn robustness.
         self.history.append({"role": "user", "content": system_instruction})
         
         try:
