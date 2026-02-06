@@ -10,6 +10,9 @@ class CameraHandler:
         self.cap = cv2.VideoCapture(self.cam_index)
         if not self.cap.isOpened():
             raise Exception(f"Could not open camera with index {self.cam_index}")
+        
+        # Optimize buffer size for low latency
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         # Common resolutions to test, from highest to lowest
         resolutions = [

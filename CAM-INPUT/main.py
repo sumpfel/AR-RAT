@@ -14,6 +14,8 @@ from camera_handler import CameraHandler
 from hand_detector import HandDetector
 from gesture_classifier import GestureClassifier
 import threading
+import queue
+import copy
 #import google.generativeai as genai
 from PIL import Image
 import os
@@ -130,6 +132,53 @@ def get_screen_resolution():
         pass
     return 1920, 1080 # Fallback
 
+class DetectionThread(threading.Thread):
+    def __init__(self, detector):
+        super().__init__()
+        self.detector = detector
+        self.frame_queue = queue.Queue(maxsize=1)
+        self.result_queue = queue.Queue(maxsize=1)
+        self.running = True
+        self.daemon = True
+
+    def run(self):
+        while self.running:
+            try:
+                frame = self.frame_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
+            # Optimize: Resize for faster detection if frame is huge? 
+            # MediaPipe typically prefers 640x480 or similar.
+            # But we want coordinate consistency. process_frame handles it?
+            # HandDetector wraps mediapipe.
+            
+            try:
+                detection_result = self.detector.process_frame(frame)
+                hands_list = self.detector.get_landmarks_as_list(detection_result)
+                
+                # We can do the filtering here too to save main thread time
+                self.result_queue.put(hands_list)
+            except Exception as e:
+                print(f"Detection Thread Error: {e}")
+
+    def update_frame(self, frame):
+        if self.frame_queue.full():
+            try:
+                self.frame_queue.get_nowait() # Drop old frame
+            except queue.Empty:
+                pass
+        self.frame_queue.put(frame)
+
+    def get_result(self):
+        if not self.result_queue.empty():
+            return self.result_queue.get()
+        return None
+
+    def stop(self):
+        self.running = False
+
+
 
 
 
@@ -228,12 +277,13 @@ def main():
     last_fps_time = time.time()
     frame_count = 0
 
-    # Adaptive detection state
-    detection_frame_skip = 1
-    frame_counter_adaptive = 0
-    last_detection_result = None
-    last_hands_list = []
-
+    # Init Thread
+    det_thread = DetectionThread(detector)
+    det_thread.start()
+    
+    # State for threaded results
+    current_hands_list = []
+    
     print(f"Started in {args.mode} mode. Press 'q' to quit.")
     if args.mode == "record":
         print("Press 'r' to record current gesture (Only works if 1 hand detected).")
@@ -272,61 +322,48 @@ def main():
             frame_count = 0
             last_fps_time = curr_time
 
-            # Adjust skip rate based on FPS
-            if fps_avg < target_fps * 0.5:
-                # If we are below half target FPS, skip frames
-                # If target is 30 and we have 15, maybe skip 1 (detect every 2nd)
-                # If we have 5, skip more.
-                detection_frame_skip = max(1, min(10, int(target_fps / max(1, fps_avg))))
-            else:
-                detection_frame_skip = 1
-
-        # Detect (Adaptive Skipping)
-        frame_counter_adaptive += 1
-        if frame_counter_adaptive >= detection_frame_skip or last_detection_result is None:
-            detection_result = detector.process_frame(frame)
-            hands_list = detector.get_landmarks_as_list(detection_result)
-
-            # Hand Filtering: Only keep hands within distance (size > 0.1)
-            # Strategy: Split into LEFT and RIGHT groups.
-            # For each group, keep only the LARGEST hand (closest to camera).
-
-            hands_left = []
-            hands_right = []
-
-            for hand in hands_list:
+        # --- DETECT ---
+        # Push frame to thread
+        # Optimization: Resize for detection only?
+        # Let's keep it simple first
+        det_thread.update_frame(frame.copy())
+        
+        # Check for new results
+        new_results = det_thread.get_result()
+        if new_results is not None:
+             hands_list_raw = new_results
+             
+             # Apply Filtering Logic (Same as before)
+             hands_left = []
+             hands_right = []
+             
+             # We need to re-calculate logic if we want "hands_list" to be the final one
+             # Moved filtering logic here or keep in main? 
+             # Let's keep filtering in main for now so we can tweak it easily
+             
+             for hand in hands_list_raw:
                 lms = hand["landmarks"]
-                # Calculate "size" as distance between wrist (0) and middle base (9)
-                # This is a robust proxy for distance from camera
                 size = math.hypot(lms[0]['x'] - lms[9]['x'], lms[0]['y'] - lms[9]['y'])
                 hand["size"] = size
 
-                # Minimum size threshold (ignores hands too far away)
                 if size > 0.1:
                     if hand["label"] == "Left":
                         hands_left.append(hand)
-                    else: # Right or Unknown (treat as Right/General)
+                    else: 
                         hands_right.append(hand)
 
-            # Select best candidate for each side
-            final_hands = []
-
-            if hands_left:
-                # Sort descending by size -> largest first
+             final_hands = []
+             if hands_left:
                 hands_left.sort(key=lambda x: x["size"], reverse=True)
-                final_hands.append(hands_left[0]) # Keep biggest Left
-
-            if hands_right:
+                final_hands.append(hands_left[0])
+             if hands_right:
                 hands_right.sort(key=lambda x: x["size"], reverse=True)
-                final_hands.append(hands_right[0]) # Keep biggest Right
+                final_hands.append(hands_right[0])
+             
+             current_hands_list = final_hands
 
-            hands_list = final_hands
-            last_detection_result = detection_result
-            last_hands_list = hands_list
-            frame_counter_adaptive = 0
-        else:
-            detection_result = last_detection_result
-            hands_list = last_hands_list
+        # Local variable for this frame's logic
+        hands_list = current_hands_list
         
         udp_data = {
             "compound": "None",
@@ -565,6 +602,7 @@ def main():
 
     cam.release()
     cv2.destroyAllWindows()
+    det_thread.stop()
     sock.close()
 
 if __name__ == "__main__":
