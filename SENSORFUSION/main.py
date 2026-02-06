@@ -6,6 +6,8 @@ import math
 import argparse
 import numpy as np
 from ahrs.filters import Madgwick
+import cv2
+import mediapipe as mp
 
 # Add current directory to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -13,10 +15,11 @@ import sensor_setup
 import calibration
 
 class SensorFusionEngine:
-    def __init__(self, use_gyro=True, use_magnetometer=True, relative_yaw=False, forward_axis='x', up_axis='z'):
+    def __init__(self, use_gyro=True, use_magnetometer=True, relative_yaw=False, forward_axis='x', up_axis='z', target_priority='center'):
         self.use_gyro = use_gyro
         self.use_magnetometer = use_magnetometer
         self.relative_yaw = relative_yaw
+        self.target_priority = target_priority
         self.forward_axis = forward_axis
         self.up_axis = up_axis
         
@@ -30,7 +33,7 @@ class SensorFusionEngine:
         self.alpha = 0.2
         self.s_roll, self.s_pitch, self.s_yaw = 0.0, 0.0, 0.0
         self.yaw_offset = None
-        
+        self.last_ts = time.time()
         self.init_system()
 
     def get_axis_vector(self, axis_name):
@@ -96,6 +99,13 @@ class SensorFusionEngine:
         self.madgwick = Madgwick(frequency=100.0, beta=0.05)
 
     def update(self):
+        # Update Dt logic
+        now = time.time()
+        dt = now - self.last_ts
+        self.last_ts = now
+        if dt > 0:
+            self.madgwick.Dt = dt
+
         # Read Sensors
         gx, gy, gz = self.lsm.gyro
         ax, ay, az = self.lsm.acceleration
@@ -227,7 +237,9 @@ class SensorFusionEngine:
         self.s_pitch = smooth_angle(self.s_pitch, p_deg, self.alpha)
         
         # Yaw can be very jittery, so we apply stronger smoothing
-        yaw_alpha = 0.05 
+        # User reported "doesn't move much", so reducing smoothing (increasing alpha)
+        # Previous: 0.05. New: 0.2 (Faster response)
+        yaw_alpha = 0.2 
         self.s_yaw = smooth_angle(self.s_yaw, y_deg, yaw_alpha) 
         
         # Normalize s_yaw to +/- 180
@@ -238,17 +250,130 @@ class SensorFusionEngine:
 
     def run(self, visualizer=None):
         print("Starting loop. Press Ctrl+C to exit.")
-        try:
-            while True:
-                r, p, y, _ = self.update()
-                print(f"R: {r:>6.1f} | P: {p:>6.1f} | Y: {y:>6.1f}", end="\r")
-                
-                if visualizer:
-                    if not visualizer.update(r, p, y):
-                        break
-                time.sleep(0.01)
-        except KeyboardInterrupt:
-            print("\nExiting...")
+        cap = cv2.VideoCapture(0)
+        
+        # Optimize Camera
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        
+        # Initialize MediaPipe Tasks Face Detector
+        BaseOptions = mp.tasks.BaseOptions
+        FaceDetector = mp.tasks.vision.FaceDetector
+        FaceDetectorOptions = mp.tasks.vision.FaceDetectorOptions
+        VisionRunningMode = mp.tasks.vision.RunningMode
+
+        model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'blaze_face_short_range.tflite')
+        
+        options = FaceDetectorOptions(
+            base_options=BaseOptions(model_asset_path=model_path),
+            running_mode=VisionRunningMode.IMAGE)
+        
+        with FaceDetector.create_from_options(options) as detector:
+            try:
+                while True:
+                    # 1. Capture Camera
+                    ret, frame = cap.read()
+                    face_img = None
+                    active_targets = 0
+                    
+                    if ret:
+                        # Convert to RGB for MediaPipe
+                        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+                        
+                        # Detect
+                        detection_result = detector.detect(mp_image)
+                        
+                        if detection_result.detections:
+                            active_targets = len(detection_result.detections)
+                            h, w, _ = frame.shape
+                            cx, cy = w/2, h/2
+                            
+                            min_val = float('inf') # Can represent Distance or Luminance
+                            best_detection = None
+                            
+                            for detection in detection_result.detections:
+                                # Get Bounding Box
+                                bbox = detection.bounding_box
+                                x = int(bbox.origin_x)
+                                y = int(bbox.origin_y)
+                                bw = int(bbox.width)
+                                bh = int(bbox.height)
+                                
+                                # Clamp coords to frame
+                                x = max(0, x); y = max(0, y)
+                                bw = min(w-x, bw); bh = min(h-y, bh)
+                                
+                                if bw > 10 and bh > 10:
+                                    metric = float('inf')
+                                    
+                                    if self.target_priority == 'dark':
+                                         # Prioritize Lowest Luminance
+                                         temp_crop = frame[y:y+bh, x:x+bw]
+                                         temp_gray = cv2.cvtColor(temp_crop, cv2.COLOR_BGR2GRAY)
+                                         lum = np.mean(temp_gray)
+                                         metric = lum
+                                    else:
+                                         # Default: Prioritize Center
+                                         fcx, fcy = x + bw/2, y + bh/2
+                                         dist = math.hypot(fcx-cx, fcy-cy)
+                                         metric = dist
+                                    
+                                    if metric < min_val:
+                                        min_val = metric
+                                        best_detection = (x, y, bw, bh)
+                            
+                            if best_detection:
+                                x, y, bw, bh = best_detection
+                                # Clamp
+                                x = max(0, x); y = max(0, y)
+                                bw = min(w-x, bw); bh = min(h-y, bh)
+                                
+                                if bw > 10 and bh > 10:
+                                    crop = frame[y:y+bh, x:x+bw]
+                                    # Black and White Film Effect
+                                    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+                                    
+                                    # Calculate Luminance (Mean Intensity) BEFORE filter for accuracy of subject
+                                    # Scaled 0-255.
+                                    face_lum = int(np.mean(gray))
+                                    
+                                    # Film Noir Effect: Variable Contrast + Grain
+                                    # 1. Contrast (User requested "distortion is still way too much")
+                                    # Reduced alpha to 1.1 (nearly natural) and beta to -10.
+                                    face_contrasted = cv2.convertScaleAbs(gray, alpha=1.1, beta=-10)
+                                    
+                                    # 2. Add Noise (Film Grain) - User said "noise is good"
+                                    # Generate random noise
+                                    noise = np.zeros(face_contrasted.shape, dtype=np.uint8)
+                                    cv2.randn(noise, 0, 20) # Mean 0, StdDev 20
+                                    
+                                    # Add noise (clip to protect uint8 wrap)
+                                    face_img = cv2.add(face_contrasted, noise)
+                        else:
+                            # No Target: "Old TV Static" Effect
+                            # Generate random noise block
+                            noise_h, noise_w = 200, 200 # Fixed size block
+                            face_img = np.zeros((noise_h, noise_w), dtype=np.uint8)
+                            cv2.randu(face_img, 0, 255) # Uniform random noise 0-255
+                    
+                    # 2. Update Sensors
+                    r, p, y, gyro_v = self.update()
+                    print(f"R: {r:>6.1f} | P: {p:>6.1f} | Y: {y:>6.1f} | T: {active_targets}", end="\r")
+                    
+                    # 3. Update Visualizer
+                    if visualizer:
+                        if not visualizer.update(r, p, y, gyro_v=gyro_v, active_targets=active_targets, face_img=face_img, face_lum=face_lum if 'face_lum' in locals() else 0):
+                            break
+                    else:
+                        time.sleep(0.01)
+
+            except KeyboardInterrupt:
+                print("\nExiting...")
+            except Exception as e:
+                print(f"\nError in loop: {e}")
+            finally:
+                cap.release()
 
 def main():
     parser = argparse.ArgumentParser()
@@ -258,6 +383,7 @@ def main():
     parser.add_argument('--use-gyro', action='store_true')
     parser.add_argument('--use-magnetometer', action='store_true')
     parser.add_argument('--relative-yaw', action='store_true')
+    parser.add_argument('--target-priority', choices=['center', 'dark'], default='center', help='Target selection criteria')
     args = parser.parse_args()
 
     vis = None
@@ -273,7 +399,8 @@ def main():
         use_magnetometer=args.use_magnetometer,
         relative_yaw=args.relative_yaw,
         forward_axis=args.forward_axis,
-        up_axis=args.up_axis
+        up_axis=args.up_axis,
+        target_priority=args.target_priority
     )
     
     engine.run(visualizer=vis)

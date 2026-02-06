@@ -6,5 +6,53 @@
             89,
             44
         ]
+    },
+    "tenor.gif": {
+        "mouth_rect": [
+            59,
+            167,
+            139,
+            66
+        ]
+    },
+    "waifu_animated_02.gif": {
+        "mouth_rect": [
+            51,
+            95,
+            31,
+            14
+        ]
+    },
+    "waifu_animated_01_2436.gif": {
+        "mouth_rect": [
+            79,
+            198,
+            73,
+            30
+        ]
+    },
+    "waifu_animated_02_6186.gif": {
+        "mouth_rect": [
+            50,
+            96,
+            31,
+            8
+        ]
+    },
+    "tenor_1201.gif": {
+        "mouth_rect": [
+            64,
+            171,
+            135,
+            48
+        ]
+    },
+    "waifu_animated_02_8633.gif": {
+        "mouth_rect": [
+            46,
+            93,
+            46,
+            20
+        ]
     }
 }

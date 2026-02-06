@@ -56,7 +56,14 @@ class AvatarWidget(QWidget):
 
         self.calibration_mode = False
         
+        self.anime_mode = True
+        
         self.pick_random_waifu()
+
+    def set_anime_mode(self, enabled):
+        self.anime_mode = enabled
+        self.set_emotion(None) # Clear emotion if disabled
+        self.update()
 
     def load_assets(self):
         # Load mouth images
@@ -268,6 +275,9 @@ class AvatarWidget(QWidget):
             self.update()
 
     def set_emotion(self, emotion):
+        if not self.anime_mode and emotion:
+            return # Ignore emotion requests if mode is off
+            
         self.emotion = emotion
         if emotion:
             QTimer.singleShot(5000, lambda: self.set_emotion(None))
@@ -363,119 +373,151 @@ class AvatarWidget(QWidget):
              self.mouthPositionChanged.emit(QPoint(x_off + scaled_pixmap.width()//2, y_off + scaled_pixmap.height()//2))
 
         # Programmatic Expressions (Fixes background issue)
-        if self.emotion:
-            # Re-read face positions
-            mx, my, mw, mh = self.mouth_rect if self.mouth_rect else (orig_w//2, orig_h//2, 50, 50)
+        if self.emotion and self.anime_mode:
+            # Re-read face positions from mouth_rect
+            # We assume standard anime proportions:
+            # Mouth is roughly at 75-80% height of the face bottom-wise?
+            # Let's reverse engineer "Face ROI" from mouth rect
             
-            screen_mx = x_off + int(mx * scale_x)
-            screen_my = y_off + int(my * scale_y)
-            screen_mw = int(mw * scale_x)
+            if not self.mouth_rect:
+                # Fallback to roughly center
+                mouth_cx = x_off + scaled_pixmap.width() // 2
+                mouth_cy = y_off + scaled_pixmap.height() * 0.75
+                mouth_w_screen = scaled_pixmap.width() * 0.2
+            else:
+                mx, my, mw, mh = self.mouth_rect
+                
+                # Convert to screen coordinates
+                start_x = x_off + int(mx * scale_x)
+                start_y = y_off + int(my * scale_y)
+                mouth_w_screen = int(mw * scale_x)
+                mouth_h_screen = int(mh * scale_y)
+                
+                mouth_cx = start_x + mouth_w_screen // 2
+                mouth_cy = start_y + mouth_h_screen // 2
+
+            # Estimate Face Key Points based on Mouth Width
+            # User Feedback: "Imagine an ellipse around the mouth a little bit higher"
+            # So the face isn't huge, it's just around the mouth but shifted up.
+
+            # Heuristic: 
+            # Face Center Y is above the mouth.
+            # Face Width is maybe 2.5x mouth width?
+            
+            unit = mouth_w_screen
+            
+            # center of "Face Ellipse"
+            face_cx = mouth_cx
+            face_cy = mouth_cy - int(unit * 0.8) # Shift up by almost one mouth width
+            
+            face_w = int(unit * 2.2)
+            face_h = int(unit * 2.2)
+            
+            # Key Levels relative to this "Face Ellipse"
+            # Forehead: Top of ellipse
+            # Eyes: Upper half of ellipse
+            # Cheeks: Lower half/Center
+            
+            forehead_y = face_cy - int(face_h * 0.4)
+            eye_level_y = face_cy - int(face_h * 0.1)
+            cheek_y = face_cy + int(face_h * 0.2) # Keeping it close to mouth
+            
+            # Clamp to screen just in case
+            forehead_y = max(y_off, forehead_y)
+            eye_level_y = max(y_off, eye_level_y)
+            
+            center_x = mouth_cx
             
             t = self.animation_frame
 
             if self.emotion == "angry":
-                # Draw Red Anger Mark (Veins)
-                # Usually top right
-                cx = screen_mx + int(screen_mw * 2.5)
-                cy = screen_my - int(screen_mw * 1.5)
-                size = 40 + 5 * math.sin(t * 0.5)
+                # Forehead, slightly to the side (inside ellipse)
+                mark_cx = center_x + int(face_w * 0.3)
+                mark_cy = forehead_y
+                size = int(unit * 0.6) + 5 * math.sin(t * 0.5) # Smaller mark
                 
                 painter.setPen(QPen(QColor(220, 0, 0), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
                 
-                # Draw # shape with curves
-                #      /   \
-                #     /     \
-                #    /       \
-                #   /   \ /   \
-                #       X
-                #   \  / \  /
-                
-                # Simplified "Vein" mark: 4 curves radiating from center
+                # Simplified "Vein" mark
                 for angle in [45, 135, 225, 315]:
                     rad = math.radians(angle)
-                    p1 = QPointF(cx + math.cos(rad)*10, cy + math.sin(rad)*10)
-                    p2 = QPointF(cx + math.cos(rad)*size, cy + math.sin(rad)*size)
+                    p1 = QPointF(mark_cx + math.cos(rad)*size*0.2, mark_cy + math.sin(rad)*size*0.2)
+                    p2 = QPointF(mark_cx + math.cos(rad)*size, mark_cy + math.sin(rad)*size)
                     
                     path = QPainterPath()
                     path.moveTo(p1)
-                    # Add a curve to make it look organic
-                    ctrl = QPointF(cx + math.cos(rad+0.2)*size*0.5, cy + math.sin(rad+0.2)*size*0.5)
+                    ctrl = QPointF(mark_cx + math.cos(rad+0.2)*size*0.5, mark_cy + math.sin(rad+0.2)*size*0.5)
                     path.quadTo(ctrl, p2)
                     painter.drawPath(path)
 
             elif self.emotion == "sweat":
-                 # Draw Blue Sweat Drop
-                 # Side of head
-                 sx = screen_mx + int(screen_mw * 2.0)
-                 sy = screen_my - int(screen_mw * 1.0)
-                 slide = (t * 2) % 20
-                 sy += int(slide)
+                 # Temple/Side (Inside ellipse)
+                 drop_x = center_x + int(face_w * 0.4) 
+                 drop_y = forehead_y + int(face_h * 0.1)
                  
-                 w = 30
-                 h = 50
+                 slide = (t * 2) % 15
+                 drop_y += int(slide)
+                 
+                 w = int(unit * 0.3)
+                 h = int(unit * 0.5)
                  
                  path = QPainterPath()
-                 path.moveTo(sx, sy) # Top tip
-                 path.cubicTo(sx + w, sy + h, sx - w, sy + h, sx, sy) # Bottom bulb
+                 path.moveTo(drop_x, drop_y) 
+                 path.cubicTo(drop_x + w, drop_y + h, drop_x - w, drop_y + h, drop_x, drop_y) 
                  
                  painter.setBrush(QBrush(QColor(100, 200, 255)))
                  painter.setPen(QPen(QColor(50, 100, 200), 2))
                  painter.drawPath(path)
                  
-                 # Shine
                  painter.setBrush(QBrush(QColor(255, 255, 255)))
                  painter.setPen(Qt.PenStyle.NoPen)
-                 painter.drawEllipse(sx - 5, sy + 30, 6, 10)
+                 painter.drawEllipse(drop_x - int(w*0.3), drop_y + int(h*0.4), int(w*0.3), int(h*0.3))
 
             elif self.emotion == "sad":
-                # Tears Streaming down from "eyes" (approx above mouth)
-                # Two streams
-                eye_y = screen_my - int(screen_mw * 1.2)
-                eye_x_left = screen_mx - int(screen_mw * 0.8)
-                eye_x_right = screen_mx + int(screen_mw * 1.8) # Mouth is usually strictly center? assume mouth x is left corner? 
-                # Actually mouth_rect x is left corner. so center is x + w/2
-                center_x = screen_mx + screen_mw // 2
-                eye_dist = int(screen_mw * 1.5)
-                eye_x_left = center_x - eye_dist
-                eye_x_right = center_x + eye_dist
+                # Tears (Eyes)
+                left_eye_x = center_x - int(face_w * 0.25)
+                right_eye_x = center_x + int(face_w * 0.25)
                 
-                painter.setBrush(QBrush(QColor(150, 220, 255, 200)))
+                painter.setBrush(QBrush(QColor(150, 220, 255, 180)))
                 painter.setPen(Qt.PenStyle.NoPen)
                 
                 slide = (t * 5) % 30
                 
-                for ex in [eye_x_left, eye_x_right]:
-                     # Draw stream
+                for ex in [left_eye_x, right_eye_x]:
+                     # Stream
                      path = QPainterPath()
-                     path.moveTo(ex, eye_y)
-                     path.quadTo(ex - 5, eye_y + 50 + slide, ex, eye_y + 100 + slide)
-                     path.quadTo(ex + 5, eye_y + 50 + slide, ex, eye_y)
+                     path.moveTo(ex, eye_level_y)
+                     path.quadTo(ex - 3, eye_level_y + 30 + slide, ex, eye_level_y + 60 + slide)
+                     path.quadTo(ex + 3, eye_level_y + 30 + slide, ex, eye_level_y)
                      painter.drawPath(path)
+                     
+                     # Teardrop
+                     dy = eye_level_y + 60 + slide
+                     painter.drawEllipse(QPointF(ex, dy), 5, 7)
 
             elif self.emotion == "blush":
-                # Pink ellipses on cheeks
-                center_x = screen_mx + screen_mw // 2
-                cheek_y = screen_my - int(screen_mw * 0.5)
-                dist = int(screen_mw * 1.5)
+                # Cheeks
+                blush_w = int(face_w * 0.15)
+                blush_h = int(blush_w * 0.6)
                 
-                painter.setBrush(QBrush(QColor(255, 100, 100, 100))) # Transparent pink
+                left_cheek_x = center_x - int(face_w * 0.3)
+                right_cheek_x = center_x + int(face_w * 0.3)
+                
+                painter.setBrush(QBrush(QColor(255, 100, 100, 80)))
                 painter.setPen(Qt.PenStyle.NoPen)
                 
-                # Left cheek
-                painter.drawEllipse(QPointF(center_x - dist, cheek_y), 20, 15)
-                # Right cheek
-                painter.drawEllipse(QPointF(center_x + dist, cheek_y), 20, 15)
+                painter.drawEllipse(QPointF(left_cheek_x, cheek_y), blush_w, blush_h)
+                painter.drawEllipse(QPointF(right_cheek_x, cheek_y), blush_w, blush_h)
                 
-                # Lines
-                painter.setPen(QPen(QColor(255, 50, 50, 150), 2))
-                for i in range(3):
-                    # diagonal lines
-                    x = center_x - dist - 15 + i*10
-                    y = cheek_y - 10
-                    painter.drawLine(x, y, x-5, y+20)
-                    
-                    x = center_x + dist - 15 + i*10
-                    painter.drawLine(x, y, x-5, y+20)
+                painter.setPen(QPen(QColor(255, 50, 50, 100), 2))
+                
+                line_spacing = max(3, int(blush_w * 0.25))
+                line_h = int(blush_h * 0.8)
+                
+                for cx in [left_cheek_x, right_cheek_x]:
+                    for i in range(-1, 2):
+                        ox = cx + i * line_spacing
+                        painter.drawLine(int(ox + 3), int(cheek_y - line_h/2), int(ox - 3), int(cheek_y + line_h/2))
 
         if self.calibration_mode:
              painter.setPen(QPen(QColor(0, 255, 0), 2))

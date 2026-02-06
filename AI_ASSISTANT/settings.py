@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QLineEdit, QComboBox, QPushButton, QFormLayout)
+                             QLineEdit, QComboBox, QPushButton, QFormLayout, QCheckBox)
 import json
 import os
 
@@ -38,6 +38,10 @@ class SettingsDialog(QDialog):
         ])
         self.form_layout.addRow("Voice (edge-tts):", self.voice_name)
 
+        self.anime_mode = QCheckBox("Enable Anime Mode")
+        self.anime_mode.setToolTip("If enabled, the assistant acts like an anime character with emotions.\nIf disabled, acts like a standard helpful assistant.")
+        self.form_layout.addRow("Anime Persona:", self.anime_mode)
+
         self.layout.addLayout(self.form_layout)
         
         # Buttons
@@ -62,11 +66,12 @@ class SettingsDialog(QDialog):
                     self.gemini_key.setText(data.get("gemini_key", ""))
                     self.ollama_model.setText(data.get("ollama_model", "llama3"))
                     voice = data.get("voice", "en-US-AriaNeural")
-                    idx = self.voice_name.findText(voice)
                     if idx >= 0:
                         self.voice_name.setCurrentIndex(idx)
                     else:
                          self.voice_name.setCurrentText(voice) or self.voice_name.setEditText(voice) if self.voice_name.isEditable() else None
+                    
+                    self.anime_mode.setChecked(data.get("anime_mode", True))
             except Exception as e:
                 print(f"Error loading settings: {e}")
 
@@ -75,7 +80,9 @@ class SettingsDialog(QDialog):
             "model_type": self.model_type.currentText(),
             "gemini_key": self.gemini_key.text(),
             "ollama_model": self.ollama_model.text(),
-            "voice": self.voice_name.currentText()
+            "ollama_model": self.ollama_model.text(),
+            "voice": self.voice_name.currentText(),
+            "anime_mode": self.anime_mode.isChecked()
         }
         try:
             with open(SETTINGS_FILE, "w") as f:
@@ -96,5 +103,8 @@ class SettingsDialog(QDialog):
             "model_type": "ollama", 
             "gemini_key": "", 
             "ollama_model": "llama3",
-            "voice": "en-US-AriaNeural"
+            "gemini_key": "", 
+            "ollama_model": "llama3",
+            "voice": "en-US-AriaNeural",
+            "anime_mode": True
         }

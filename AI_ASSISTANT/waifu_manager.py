@@ -93,6 +93,13 @@ class WaifuManager:
         filename = os.path.basename(source_path)
         dest_path = os.path.join(self.waifu_dir, filename)
         
+        # Check if we are selecting a file that is ALREADY in the waifu dir
+        abs_source = os.path.abspath(source_path)
+        abs_dest = os.path.abspath(dest_path)
+        
+        if abs_source == abs_dest:
+            return dest_path # Already there, do nothing
+        
         if os.path.exists(dest_path):
             base, ext = os.path.splitext(filename)
             dest_path = os.path.join(self.waifu_dir, f"{base}_{random.randint(1000,9999)}{ext}")

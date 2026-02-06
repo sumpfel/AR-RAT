@@ -89,55 +89,89 @@ class MangaSpeechBubble(QWidget):
             rw = bubble_rect.width()
             rh = bubble_rect.height()
             
-            # Draw cloud shape using multiple overlapping ellipses
-            # Main body
+            # Central ellipse
             path.addEllipse(rx, ry, rw, rh)
             
-            # Randomize bumps for a more organic look (fixed seed for stability if needed, but pseudo-random is fine here)
-            # Top bumps
-            path.addEllipse(rx + rw*0.1, ry - rh*0.1, rw*0.3, rh*0.3)
-            path.addEllipse(rx + rw*0.4, ry - rh*0.15, rw*0.3, rh*0.3)
-            path.addEllipse(rx + rw*0.7, ry - rh*0.1, rw*0.3, rh*0.3)
+            # Add many more random-looking bumps for "fluffiness"
+            # We place circles along the perimeter of the main ellipse
             
-            # Bottom bumps
-            path.addEllipse(rx + rw*0.1, ry + rh*0.8, rw*0.3, rh*0.3)
-            path.addEllipse(rx + rw*0.4, ry + rh*0.85, rw*0.3, rh*0.3)
-            path.addEllipse(rx + rw*0.7, ry + rh*0.8, rw*0.3, rh*0.3)
+            # Perimeter approximation: Parametric ellipse
+            # x = cx + a * cos(t)
+            # y = cy + b * sin(t)
             
-            # Left bumps
-            path.addEllipse(rx - rw*0.1, ry + rh*0.2, rw*0.3, rh*0.3)
-            path.addEllipse(rx - rw*0.1, ry + rh*0.6, rw*0.3, rh*0.3)
+            cx = rx + rw/2
+            cy = ry + rh/2
+            a = rw/2
+            b = rh/2
             
-            # Right bumps
-            path.addEllipse(rx + rw*0.8, ry + rh*0.2, rw*0.3, rh*0.3)
-            path.addEllipse(rx + rw*0.8, ry + rh*0.6, rw*0.3, rh*0.3)
-
+            num_bumps = 12
+            for i in range(num_bumps):
+                angle_deg = i * (360 / num_bumps)
+                rad = math.radians(angle_deg)
+                
+                # Point on perimeter
+                px = cx + a * math.cos(rad)
+                py = cy + b * math.sin(rad)
+                
+                # Bump size varies
+                bump_w = rw * 0.25
+                bump_h = rh * 0.25
+                
+                # Randomize slightly (pseudo-random based on index)
+                # deterministic "randomness"
+                bump_w *= (1.0 + 0.2 * math.sin(i * 123.45))
+                bump_h *= (1.0 + 0.2 * math.cos(i * 678.90))
+                
+                # Draw bump centered at perimeter point seems too far out?
+                # Move it slightly inward
+                px = cx + (a * 0.9) * math.cos(rad)
+                py = cy + (b * 0.9) * math.sin(rad)
+                
+                path.addEllipse(QPointF(px - bump_w/2, py - bump_h/2), bump_w, bump_h)
+            
             painter.drawPath(path)
             
             # Thinking Dots (Tail) pointing to target
             if self.target_point:
-                start = QPointF(rx + rw*0.3, ry + rh) # Start from bottom-left-ish
-                end = QPointF(self.target_point)
+                target = QPointF(self.target_point)
                 
-                # Draw 3 bubbles decreasing in size towards the head
-                # But actually, think bubbles usually go: Small -> Medium -> Large Cloud
-                # So from Head (Small) -> Cloud (Large)
+                # Determine start point on the bubble roughly towards target
+                # Vector from center to target
+                dx_total = target.x() - cx
+                dy_total = target.y() - cy
+                angle = math.atan2(dy_total, dx_total)
                 
-                # Calculate vector
-                dx = end.x() - start.x()
-                dy = end.y() - start.y()
-                dist = math.hypot(dx, dy)
+                # Point on perimeter
+                start_x = cx + a * math.cos(angle)
+                start_y = cy + b * math.sin(angle)
+                start = QPointF(start_x, start_y)
                 
-                if dist > 20: 
-                    # 3 bubbles
+                # Bubbles
+                
+                # We want 3 bubbles: Large (near cloud), Medium, Small (near head)
+                # But typically think bubbles go: Head (Small) -> Med -> Large -> Cloud
+                # Let's draw from Cloud towards Head
+                
+                # Distance from cloud edge to target
+                # We actually want the bubbles to spawn *outside* the cloud
+                
+                # Vector start -> target
+                vx = target.x() - start.x()
+                vy = target.y() - start.y()
+                dist = math.hypot(vx, vy)
+                
+                if dist > 30:
+                    # Place bubbles at 15%, 35%, 60% of distance?
+                    positions = [0.15, 0.35, 0.60]
+                    sizes = [12, 9, 5]
+                    
                     for i in range(3):
-                        # 0 is near cloud, 2 is near head
-                        t = (i + 1) / 4.0 
-                        cx = start.x() + dx * t
-                        cy = start.y() + dy * t
+                        t = positions[i]
+                        bx = start.x() + vx * t
+                        by = start.y() + vy * t
                         
-                        r = 8 - i * 2 # 8, 6, 4
-                        painter.drawEllipse(QPointF(cx, cy), r, r)
+                        s = sizes[i]
+                        painter.drawEllipse(QPointF(bx, by), s, s)
 
         else:
             # NORMAL OVAL BUBBLE
@@ -362,6 +396,13 @@ class MainWindow(QMainWindow):
             }
         """)
         
+        self.last_query_label = QLabel("")
+        self.last_query_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        # Increased size and made it slightly darker for better visibility per user feedback ("history way to small")
+        self.last_query_label.setStyleSheet("color: #444; font-size: 16px; font-style: italic; margin-bottom: 5px;")
+        self.last_query_label.setWordWrap(True)
+        self.controls_layout.addWidget(self.last_query_label)
+
         self.controls_layout.addLayout(self.btn_layout)
         self.controls_layout.addWidget(self.input_field)
         
@@ -388,8 +429,10 @@ class MainWindow(QMainWindow):
         self.backend.set_mode(
             self.settings["model_type"], 
             api_key=self.settings["gemini_key"],
-            model=self.settings["ollama_model"]
+            model=self.settings["ollama_model"],
+            anime_mode=self.settings.get("anime_mode", True)
         )
+        self.avatar.set_anime_mode(self.settings.get("anime_mode", True))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -413,7 +456,8 @@ class MainWindow(QMainWindow):
             self.update_backend_settings()
 
     def upload_character(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Upload Character", "", "Images/Videos (*.png *.jpg *.jpeg *.mp4 *.webm *.gif)")
+        start_dir = self.avatar.waifu_dir if os.path.exists(self.avatar.waifu_dir) else ""
+        file_path, _ = QFileDialog.getOpenFileName(self, "Upload Character", start_dir, "Images/Videos (*.png *.jpg *.jpeg *.mp4 *.webm *.gif)")
         if file_path:
             self.avatar.import_waifu(file_path)
 
@@ -454,6 +498,10 @@ class MainWindow(QMainWindow):
             return
             
         self.input_field.clear()
+        
+        # Show what user asked
+        self.last_query_label.setText(f"You: {text}")
+        
         self.speech_bubble.setText("Thinking...", True)
         self.avatar.set_state("talking") 
         

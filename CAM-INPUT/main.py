@@ -380,25 +380,6 @@ def main():
             results = classifier.predict(hands_list)
             udp_data.update(results)
             
-            # --- GESTURE FILTERING BASED ON MODE ---
-            # 1. If Keyboard Active: Disable "L" (Move) to prevent accidental layout shifts while typing
-            if keyboard_view_active:
-                if udp_data["compound"] == "Move":
-                    udp_data["compound"] = "None"
-                
-                # Filter individual L gestures
-                for g in udp_data["gestures"]:
-                    if g["gesture"] == "L":
-                        g["gesture"] = "Unknown"
-
-            # 2. If Keyboard Inactive: Disable "Move", "Resize" and Typing-related logic
-            else:
-                if udp_data["compound"] == "Move" or udp_data["compound"] == "Resize":
-                    udp_data["compound"] = "None"
-                
-                # We also want to ignore "Type" gestures (Pinch) but that logic is handled in "Typing Logic" block below
-                # Just ensuring we don't send accidental "Move" compounds is key.
-            
             curr_time = time.time()
             
             # Check Actions based on gestures
