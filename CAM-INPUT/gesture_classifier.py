@@ -206,7 +206,8 @@ class GestureClassifier:
                 "hand": hand["label"],
                 "gesture": gesture_name,
                 "confidence": confidence,
-                "wrist": landmarks[0] # Store wrist for distance calc
+                "wrist": landmarks[0], # Store wrist for distance calc
+                "landmarks": landmarks # Store landmarks for complex checks
             })
         
         results["gestures"] = single_hand_predictions
@@ -234,9 +235,24 @@ class GestureClassifier:
             elif g1 == "L" and g2 == "L":
                 results["compound"] = "Move"
 
-            elif g1 == "Fist" and g2 == "Fist":
-                results["compound"] = "Translate"
+            # "Translate": Diamond / Triangle Shape
+            # Left Thumb touches Right Thumb AND Left Index touches Right Index
+            l_hand = h1 if h1["hand"] == "Left" else h2
+            r_hand = h2 if h2["hand"] == "Right" else h1
+            
+            if l_hand["hand"] == "Left" and r_hand["hand"] == "Right":
+                l_lms = l_hand["landmarks"]
+                r_lms = r_hand["landmarks"]
                 
+                # Thumbs Touching (Landmark 4)
+                thumbs_dist = math.hypot(l_lms[4]['x'] - r_lms[4]['x'], l_lms[4]['y'] - r_lms[4]['y'])
+                # Indices Touching (Landmark 8)
+                indices_dist = math.hypot(l_lms[8]['x'] - r_lms[8]['x'], l_lms[8]['y'] - r_lms[8]['y'])
+                
+                # Threshold for touching (0.08 is reasonable for normalized coords)
+                if thumbs_dist < 0.08 and indices_dist < 0.08:
+                    results["compound"] = "Translate"
+                    
         return results
 
     def _predict_single_hand_custom(self, landmarks):

@@ -9,6 +9,7 @@ import json
 import shutil
 import numpy as np
 import math
+from waifu_manager import WaifuManager
 
 class AvatarWidget(QWidget):
     mouthPositionChanged = pyqtSignal(QPoint)
@@ -26,8 +27,10 @@ class AvatarWidget(QWidget):
         # Assets
         self.waifu_dir = os.path.join(base_dir, "assets", "waifus")
         self.mouth_dir = os.path.join(base_dir, "assets", "mouths")
-        # We replace image-based emotions with procedural drawing
         
+        # Manager
+        self.waifu_manager = WaifuManager(os.path.join(base_dir, "assets"))
+
         self.mouth_images = {}
         self.load_assets()
         
@@ -66,10 +69,7 @@ class AvatarWidget(QWidget):
                 self.mouth_images[name] = QPixmap(path)
         
     def pick_random_waifu(self):
-        if not os.path.exists(self.waifu_dir):
-            return
-
-        files = [f for f in os.listdir(self.waifu_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.mp4', '.webm', '.gif'))]
+        files = self.waifu_manager.get_waifu_files()
         if not files:
             return
             
@@ -152,14 +152,11 @@ class AvatarWidget(QWidget):
         self.current_waifu_pixmap = QPixmap.fromImage(qimg)
 
     def load_calibration(self):
-        json_path = self.current_waifu_path + ".json"
-        if os.path.exists(json_path):
-            try:
-                with open(json_path, 'r') as f:
-                    data = json.load(f)
-                    self.mouth_rect = tuple(data["mouth_rect"])
-            except:
-                self.detect_face_and_mouth()
+        filename = os.path.basename(self.current_waifu_path)
+        rect = self.waifu_manager.get_mouth_rect(filename)
+        
+        if rect:
+            self.mouth_rect = rect
         else:
             self.detect_face_and_mouth()
 
@@ -188,17 +185,7 @@ class AvatarWidget(QWidget):
             self.mouth_rect = (w//3, int(h*0.6), w//3, h//6)
 
     def import_waifu(self, source_path):
-        if not os.path.exists(self.waifu_dir):
-            os.makedirs(self.waifu_dir)
-            
-        filename = os.path.basename(source_path)
-        dest_path = os.path.join(self.waifu_dir, filename)
-        
-        if os.path.exists(dest_path):
-            base, ext = os.path.splitext(filename)
-            dest_path = os.path.join(self.waifu_dir, f"{base}_{random.randint(1000,9999)}{ext}")
-            
-        shutil.copy2(source_path, dest_path)
+        dest_path = self.waifu_manager.import_waifu(source_path)
         self.load_waifu(dest_path)
 
     def toggle_calibration_mode(self):
@@ -239,12 +226,8 @@ class AvatarWidget(QWidget):
             self.mouth_rect = (new_mx, new_my, current_w, current_h)
             
             if self.current_waifu_path:
-                json_path = self.current_waifu_path + ".json"
-                try:
-                    with open(json_path, 'w') as f:
-                        json.dump({"mouth_rect": self.mouth_rect}, f)
-                except Exception as e:
-                    print(f"Failed to save calibration: {e}")
+                filename = os.path.basename(self.current_waifu_path)
+                self.waifu_manager.set_mouth_rect(filename, self.mouth_rect)
             
             self.update()
         
@@ -270,12 +253,8 @@ class AvatarWidget(QWidget):
              self.mouth_rect = (new_mx, new_my, new_w, new_h)
 
              if self.current_waifu_path:
-                json_path = self.current_waifu_path + ".json"
-                try:
-                    with open(json_path, 'w') as f:
-                        json.dump({"mouth_rect": self.mouth_rect}, f)
-                except Exception as e:
-                    print(f"Failed to save calibration: {e}")
+                 filename = os.path.basename(self.current_waifu_path)
+                 self.waifu_manager.set_mouth_rect(filename, self.mouth_rect)
              
              self.update()
 

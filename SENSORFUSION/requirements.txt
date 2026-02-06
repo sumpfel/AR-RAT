@@ -5,3 +5,4 @@ pyftdi
 ahrs
 pygame
 PyOpenGL
+PyQt6
