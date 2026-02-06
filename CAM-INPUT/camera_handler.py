@@ -6,13 +6,17 @@ class CameraHandler:
         self.cap = None
 
     def start(self):
-        """Attempts to find the highest resolution supporting at least 25 FPS."""
-        self.cap = cv2.VideoCapture(self.cam_index)
+        self.cap = cv2.VideoCapture(self.cam_index, cv2.CAP_V4L2)
         if not self.cap.isOpened():
             raise Exception(f"Could not open camera with index {self.cam_index}")
         
         # Optimize buffer size for low latency
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+        # 🔑 FORCE FAST CAMERA MODE (must be first)
+        self.cap.set(cv2.CAP_PROP_FOURCC,
+                     cv2.VideoWriter_fourcc(*"MJPG"))
+        self.cap.set(cv2.CAP_PROP_FPS, 30)
 
         # Common resolutions to test, from highest to lowest
         resolutions = [
