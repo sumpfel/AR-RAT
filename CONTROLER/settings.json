@@ -1,0 +1,11 @@
+{
+    "cam_input": true,
+    "mouse_control": false,
+    "keyboard_mode": false,
+    "translation_mode": false,
+    "sound": 70,
+    "voice_cmd": true,
+    "handedness": true,
+    "mic_volume": 70,
+    "trigger_word": "computer"
+}

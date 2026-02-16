@@ -50,6 +50,70 @@ class Visualizer:
         glLoadIdentity()
         
         self.face_texture_id = None
+        
+    def is_upside_down(self, roll, pitch):
+        # Heuristic: If Roll is > 90 or < -90, we are likely inverted.
+        # Also check pitch proximity to 90 (Gimbal lock zone)
+        return abs(roll) > 120 or abs(pitch) > 85
+
+    def draw_warning_popup(self):
+        w, h = self.display
+        cx, cy = w // 2, h // 2
+        
+        # Pulsating Effect
+        ticks = pygame.time.get_ticks()
+        pulse = math.sin(ticks / 100.0) # Faster pulse
+        scale_mod = 1.2 + 0.3 * pulse 
+        
+        # --- RED NOISE OVERLAY ---
+        # Generate random noise texture on the fly is slow.
+        # But we can draw a big semi-transparent red quad that flickers alpha.
+        
+        noise_alpha = 0.3 + 0.2 * np.random.random()
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        
+        # Full Screen Red Noise Tint
+        glColor4f(1.0, 0.0, 0.0, noise_alpha)
+        glBegin(GL_QUADS)
+        glVertex2f(0, 0); glVertex2f(w, 0)
+        glVertex2f(w, h); glVertex2f(0, h)
+        glEnd()
+        
+        # Random Static Lines (Noise Waves?)
+        glColor4f(1.0, 0.0, 0.0, 0.6)
+        glLineWidth(2)
+        glBegin(GL_LINES)
+        for _ in range(20):
+            y = np.random.randint(0, h)
+            glVertex2f(0, y); glVertex2f(w, y)
+        glEnd()
+        
+        # --- HUGE WARNING BOX ---
+        bw, bh = 600 * scale_mod, 300 * scale_mod
+        
+        # Background Box (Dark Red)
+        glColor4f(0.5, 0.0, 0.0, 0.8)
+        glBegin(GL_QUADS)
+        glVertex2f(cx - bw/2, cy - bh/2)
+        glVertex2f(cx + bw/2, cy - bh/2)
+        glVertex2f(cx + bw/2, cy + bh/2)
+        glVertex2f(cx - bw/2, cy + bh/2)
+        glEnd()
+        
+        glDisable(GL_BLEND)
+        
+        # Warning Text
+        text_scale = 3.0 * scale_mod
+        color = (1.0, 1.0, 0.0) # Yellow Text
+        
+        lines = ["WARNING", "UPSIDE DOWN", "SYSTEMS FAILING"]
+        line_h = 40 * text_scale
+        
+        start_y = cy + line_h 
+        
+        for i, line in enumerate(lines):
+            self.draw_string(line, cx, start_y - i*line_h*1.2, scale=text_scale, color=color, center=True)
 
 
     # --- VECTOR FONT IMPLEMENTATION (Complete A-Z, 0-9) ---
@@ -261,6 +325,15 @@ class Visualizer:
         glVertex3f(20, 0, -10)
         glEnd()
 
+        if self.is_upside_down(roll, pitch):
+            # Line suppression is handled by NOT drawing if this returns true
+            # We return early? No, we need to pop matrix.
+            # ACTUALLY, checking in draw_overlays is better for warning.
+            # But the user wants LINES GONE.
+            # So here we stop drawing.
+            glPopMatrix() 
+            return
+
         # --- DRAW PITCH LADDER ---
         for p in range(-90, 95, 10):
             if p == 0: continue
@@ -392,6 +465,13 @@ class Visualizer:
         glMatrixMode(GL_MODELVIEW)
         glPushMatrix()
         glLoadIdentity()
+        
+        if self.is_upside_down(roll, pitch):
+            self.draw_warning_popup()
+            # We still want to see the overlays? Maybe not? 
+            # User said "Show Warning", but maybe hide other stuff?
+            # Let's show data still, it might be useful.
+
         
         # --- FIXED AIRCRAFT SYMBOL ---
         cx, cy = self.display[0]//2, self.display[1]//2

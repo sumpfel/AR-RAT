@@ -3,5 +3,5 @@ mediapipe
 #pytesseract
 easyocr
 deep-translator
-pyautogui
+pynput
 google-generativeai

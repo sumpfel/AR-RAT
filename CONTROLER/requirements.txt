@@ -1,2 +1,3 @@
 adafruit-blinka
 pyftdi
+PyQt5

@@ -245,10 +245,17 @@ class SensorFusionEngine:
         # Normalize s_yaw to +/- 180
         while self.s_yaw > 180: self.s_yaw -= 360
         while self.s_yaw < -180: self.s_yaw += 360
+        
+        # Normalize s_roll and s_pitch to prevent drift
+        while self.s_roll > 180: self.s_roll -= 360
+        while self.s_roll < -180: self.s_roll += 360
+        
+        while self.s_pitch > 180: self.s_pitch -= 360
+        while self.s_pitch < -180: self.s_pitch += 360
 
         return self.s_roll, self.s_pitch, self.s_yaw, gyro_v
 
-    def run(self, visualizer=None):
+    def run(self, visualizer=None, sound_manager=None):
         print("Starting loop. Press Ctrl+C to exit.")
         cap = cv2.VideoCapture(0)
         
@@ -359,6 +366,12 @@ class SensorFusionEngine:
                     
                     # 2. Update Sensors
                     r, p, y, gyro_v = self.update()
+                    
+                    # 3. Sound Update
+                    if sound_manager:
+                        is_inverted = (abs(r) > 120 or abs(p) > 85) # Same logic as visualizer
+                        sound_manager.update(is_inverted, active_targets)
+
                     print(f"R: {r:>6.1f} | P: {p:>6.1f} | Y: {y:>6.1f} | T: {active_targets}", end="\r")
                     
                     # 3. Update Visualizer
@@ -377,23 +390,29 @@ class SensorFusionEngine:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--debug', action='store_true', help='Enable visualization')
+    parser.add_argument('--debug', action='store_true', help='Enable debug output (only values)')
+    parser.add_argument('--hud', action='store_true', help='Enable visualization window')
     parser.add_argument('--forward-axis', default='x')
     parser.add_argument('--up-axis', default='z')
     parser.add_argument('--use-gyro', action='store_true')
     parser.add_argument('--use-magnetometer', action='store_true')
     parser.add_argument('--relative-yaw', action='store_true')
     parser.add_argument('--target-priority', choices=['center', 'dark'], default='center', help='Target selection criteria')
+    parser.add_argument('--sound-mode', choices=['none', 'alarm', 'all'], default='none', help='Audio feedback mode')
     args = parser.parse_args()
 
     vis = None
-    if args.debug:
+    if args.hud:
         try:
             import visualizer
             vis = visualizer.Visualizer()
         except ImportError:
             print("Visualizer check failed")
 
+    # Initialize Sound Manager
+    import sound_manager
+    snd = sound_manager.SoundManager(mode=args.sound_mode)
+    
     engine = SensorFusionEngine(
         use_gyro=args.use_gyro,
         use_magnetometer=args.use_magnetometer,
@@ -403,7 +422,7 @@ def main():
         target_priority=args.target_priority
     )
     
-    engine.run(visualizer=vis)
+    engine.run(visualizer=vis, sound_manager=snd)
 
 if __name__ == "__main__":
     main()
