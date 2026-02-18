@@ -1,0 +1,18 @@
+{
+    "cam_input": false,
+    "mouse_control": false,
+    "keyboard_mode": false,
+    "translation_mode": false,
+    "handedness": true,
+    "sound": {
+        "val": 90,
+        "muted": false
+    },
+    "mic_volume": {
+        "val": 80,
+        "muted": false
+    },
+    "text_size": 20,
+    "voice_cmd": false,
+    "trigger_word": "bash"
+}

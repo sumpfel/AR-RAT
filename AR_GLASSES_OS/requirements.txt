@@ -1,0 +1,21 @@
+PyQt6
+PyQt6-Qt6
+SpeechRecognition
+gtts
+pydub
+pyaudio
+adafruit-blinka
+adafruit-circuitpython-lis3mdl
+adafruit-circuitpython-lsm6dsox
+numpy
+evdev; platform_system == "Linux"
+pynput
+pyftdi
+ahrs
+pygame
+PyOpenGL
+edge-tts
+google-generativeai
+ollama
+opencv-python-headless
+Pillow
