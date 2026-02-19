@@ -1,4 +1,6 @@
 import math
+import time
+import random 
 import numpy as np
 from PyQt6.QtWidgets import QWidget, QApplication
 from PyQt6.QtCore import Qt, pyqtSignal, QRect
@@ -16,6 +18,7 @@ class SensorFusionHUD(QWidget):
         self.pitch = 0.0
         self.yaw = 0.0
         self.gyro = (0, 0, 0)
+        self.last_alarm = 0
         
         # Camera Data
         self.active_targets = 0
@@ -44,15 +47,20 @@ class SensorFusionHUD(QWidget):
 
     def handle_input(self, btn):
         import config
+        print(f"[HUD] Handling Input: {btn}")
         # Map Buttons to Modes
         if btn == config.PIN_D4: # UP
             self.mode = 1
+            print("[HUD] Mode 1 (Horizon)")
         elif btn == config.PIN_C4: # LEFT
             self.mode = 2
+            print("[HUD] Mode 2 (Compass)")
         elif btn == config.PIN_C6: # RIGHT
             self.mode = 3
+            print("[HUD] Mode 3 (Targeting)")
         elif btn == config.PIN_C3: # DOWN
             self.mode = 4
+            print("[HUD] Mode 4 (Debug Cube)")
         self.update()
 
     def update_data(self, r, p, y, gyro_data, active_targets=0, face_img=None, face_lum=0):
@@ -83,32 +91,42 @@ class SensorFusionHUD(QWidget):
         self.font_hud.setPointSize(int(14 * scale))
         self.font_alarm.setPointSize(int(24 * scale))
         
-        # Common Pen
+        # Common Pen (Thicker: 5 * scale)
         pen = QPen(self.color_hud)
-        pen.setWidth(int(3 * scale))
+        pen.setWidth(int(5 * scale)) 
         painter.setPen(pen)
         painter.setFont(self.font_hud)
         
-        # Check Alarm (Overlay regardless of mode? Or only some modes?)
-        # Let's show alarm in all modes for safety
-        is_inverted = abs(self.pitch) > 70 or abs(self.roll) > 70
+        # Check Alarm - Logic from vis_hud.py / User Request
+        # Ignore Roll for trigger to avoid 180 flip issue on desk
+        is_inverted = abs(self.pitch) > 70 
+        
         if is_inverted:
-            pen_alarm = QPen(self.color_alarm)
-            pen_alarm.setWidth(int(5 * scale))
-            painter.setPen(pen_alarm)
-            painter.drawRect(0, 0, w, h)
+            self.draw_warning(painter, w, h, scale, cx, cy)
             
-            painter.setFont(self.font_alarm)
-            painter.setPen(self.color_alarm)
-            painter.drawText(int(cx - 150*scale), int(cy), "OVERHEAD / INVERTED")
+            # Sound Trigger (Throttled 1s)
+            if time.time() - self.last_alarm > 1.0:
+                 self.last_alarm = time.time()
+                 # Play Sound via main.py if parent exists and has method
+                 if self.parent() and hasattr(self.parent(), 'play_sound'):
+                     self.parent().play_sound("assets/alarm.wav")
+                 elif self.parent() and self.parent().parent() and hasattr(self.parent().parent(), 'play_sound'): # StackedLayout parent is window?
+                     self.parent().parent().play_sound("assets/alarm.wav") # Try grandparent
             
-            # Reset
-            painter.setPen(pen)
-            painter.setFont(self.font_hud)
+            # Continue drawing HUD? User implies "negative lines are over...".
+            # vis_hud.py STOPS drawing lines if inverted.
+            # But maybe we want them?
+            # Let's draw them for now, but Warning is on TOP.
+            
+        else:
+             # Reset Alarm Timer to allow immediate re-trigger? 
+             # Or keep it running? 
+             pass
 
         # Draw based on Mode
         if self.mode == 1: # Horizon + Lines
             self.draw_horizon_ladder(painter, w, h, scale, cx, cy)
+            self.draw_stats(painter, w, h, scale)
         
         elif self.mode == 2: # Compass Only
             self.draw_compass(painter, w, h, scale, cx, cy)
@@ -119,40 +137,83 @@ class SensorFusionHUD(QWidget):
         elif self.mode == 4: # Debug Cube
              self.draw_debug_cube(painter, w, h, scale, cx, cy)
              
-        # Always draw Orientation Stats small at bottom? User wanted "modes".
-        # Mode 1 has them? Mode 2? 
-        # Making them exclusive clean views.
-        # Maybe Mode 1 needs Pitch/Roll numbers?
-        if self.mode == 1:
-             painter.drawText(20, int(h - 40*scale), f"R: {self.roll:.1f}  P: {self.pitch:.1f}")
+    def draw_stats(self, painter, w, h, scale):
+         painter.drawText(20, int(h - 40*scale), f"R: {self.roll:.1f}  P: {self.pitch:.1f}")
+
+    def draw_warning(self, painter, w, h, scale, cx, cy):
+         # Red Tint (Noise Background)
+         painter.fillRect(0, 0, w, h, QColor(255, 0, 0, 80)) # Semi-transparent Red
+         
+         # Noise Lines
+         painter.setPen(QPen(QColor(255, 100, 100, 150), 2))
+         for _ in range(20):
+             y = random.randint(0, h)
+             painter.drawLine(0, y, w, y)
+             
+         # Pulsating Box
+         pulse = math.sin(time.time() * 10) # Fast pulse
+         box_scale = scale * (1.2 + 0.3 * pulse)
+         
+         bw, bh = 600 * box_scale, 300 * box_scale
+         rect = QRectF(cx - bw/2, cy - bh/2, bw, bh)
+         
+         painter.fillRect(rect, QColor(100, 0, 0, 200)) # Dark Red Box
+         painter.setPen(QPen(QColor(255, 255, 0), 5)) # Yellow Border
+         painter.drawRect(rect)
+         
+         painter.setFont(self.font_alarm)
+         painter.setPen(QColor(255, 255, 0))
+         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "WARNING\nOVERHEAD / INVERTED")
+         
+         # Reset
+         painter.setPen(QPen(self.color_hud, int(5*scale)))
+         painter.setFont(self.font_hud)
 
     def draw_horizon_ladder(self, painter, w, h, scale, cx, cy):
-        pixels_per_deg = 15 * scale
+        # Match hud_qt.py Logic Exactly
+        # px_per_deg = h / 45.0 
+        # But we want to respect users scale preference too?
+        # hud_qt.py ignores scale for pitch. 
+        # But let's try to match hud_qt.py behavior which user liked.
+        
+        pixels_per_deg = h / 45.0 
         
         painter.save()
         painter.translate(cx, cy)
         painter.rotate(-self.roll) 
         
         # Horizon
-        y_horizon = (self.pitch) * pixels_per_deg
-        painter.drawLine(int(-w), int(y_horizon), int(w), int(y_horizon))
-        painter.drawText(int(-20*scale), int(y_horizon - 5), "--- 0 ---")
+        pitch_offset = self.pitch * pixels_per_deg
+        
+        painter.translate(0, pitch_offset)
+        painter.drawLine(int(-w), 0, int(w), 0) # Horizon Line at 0 (relative)
+        painter.drawText(int(-40*scale), -10, "--- 0 ---")
         
         # Pitch Lines
-        min_p = int(self.pitch - 40)
-        max_p = int(self.pitch + 40)
-        min_p = (min_p // 10) * 10
-        max_p = (max_p // 10) * 10
+        # Range -90 to 90
+        # hud_qt.py: for p in range(-90, 95, 10)
         
-        for i in range(min_p, max_p + 1, 10):
-            if i == 0: continue
-            y_pos = (self.pitch - i) * pixels_per_deg
-            if -h/2 < y_pos < h/2:
-                length = (60 * scale) if i % 20 != 0 else (100 * scale)
-                gap = 20 * scale
-                painter.drawLine(int(-length - gap), int(y_pos), int(-gap), int(y_pos))
-                painter.drawLine(int(gap), int(y_pos), int(length + gap), int(y_pos))
-                painter.drawText(int(length + gap + 5), int(y_pos + 10), f"{i}")
+        for p in range(-90, 95, 10):
+            if p == 0: continue
+            
+            y_pos = -p * pixels_per_deg
+            
+            # Check Visibility (optimization)
+            # Net Y relative to screen center = pitch_offset + y_pos
+            # If abs(net_y) > h/2 + margin -> skip
+            net_y = pitch_offset + y_pos
+            if abs(net_y) > h/2 + 200: continue
+            
+            line_w = (200 * scale) if p % 30 == 0 else (100 * scale)
+            gap = 60 * scale
+            
+            painter.drawLine(int(-line_w - gap), int(y_pos), int(-gap), int(y_pos))
+            painter.drawLine(int(gap), int(y_pos), int(line_w + gap), int(y_pos))
+            
+            if p % 30 == 0:
+                 painter.drawText(int(-line_w - gap - 60*scale), int(y_pos + 10), f"{p}")
+                 painter.drawText(int(line_w + gap + 10), int(y_pos + 10), f"{p}")
+                 
         painter.restore()
 
     def draw_compass(self, painter, w, h, scale, cx, cy):

@@ -163,34 +163,20 @@ class MenuOverlay(QWidget):
          # Base Font Size from Window Height
          import config
          screen_h = self.height()
-         base_size = int(screen_h * config.FONT_SCALE_RATIO * config.UI_SCALE * 2.0) # Double size as base
-         self.base_font_size = max(16, base_size) 
+         # Increased multiplier from 2.0 to 1.2 (User Feedback: "make it same as app launcher")
+         base_size = int(screen_h * config.FONT_SCALE_RATIO * config.UI_SCALE * 1.2) 
+         self.base_font_size = max(24, base_size) 
          
          # Update Title Font
          # self.title_label.setFont(QFont("Monospace", int(self.base_font_size * 1.5), QFont.Weight.Bold))
 
     def update_display(self):
         print(f"[MenuOverlay] Updating Display. {len(self.menu_items)} items.")
-        # Get Text Size Modifier from settings
-        size_mod = 0
-        for item in self.menu_items:
-            if item['key'] == 'text_size':
-                 # User setting acts as offset to base size? 
-                 # Or replacement? 
-                 # User said "text size should be overall size".
-                 # The setting `text_size` is 12-48. That's pixels.
-                 # Let's interpret it as relative offset or just use calculated one if user wants dynamic.
-                 # But they also said "if text is set to really big".
-                 # So let's use the setting as the MAIN driver but scaled by UI_SCALE?
-                 # Actually, let's keep the slider but default it to a reasonable value
-                 # and let the user override. 
-                 # BUT, the base range 12-48 might be too small for 4k screen.
-                 # Let's scale the value by UI_SCALE.
-                 import config
-                 size_mod = item['value'] * config.UI_SCALE
-                 break
+        # IGNORE text_size setting for now as it breaks dynamic scaling (hardcoded 24px)
+        # size_mod = 0
+        # ... logic removed ...
         
-        final_size = int(size_mod) if size_mod > 0 else self.base_font_size
+        final_size = self.base_font_size
         font = QFont("Monospace", final_size)
         
         for i, item in enumerate(self.menu_items):
@@ -199,13 +185,13 @@ class MenuOverlay(QWidget):
             # Dynamic Font Sizing
             if i == self.current_index:
                  # Selected: Larger and Bold
-                 lbl.setFont(QFont("Monospace", int(self.base_font_size * 1.5), QFont.Weight.Bold))
+                 lbl.setFont(QFont("Monospace", int(final_size * 1.3), QFont.Weight.Bold))
                  prefix = "> "
                  color = "#00FF00"
                  bg = "rgba(0, 255, 0, 30)"
             else:
                  # Unselected: Normal size
-                 lbl.setFont(QFont("Monospace", self.base_font_size))
+                 lbl.setFont(QFont("Monospace", final_size))
                  prefix = "  "
                  color = "#888888"
                  bg = "transparent"
@@ -263,6 +249,18 @@ class MenuOverlay(QWidget):
         if item['type'] == 'slider':
             delta = -item['step'] if direction == "left" else item['step']
             item['value'] = max(item['min'], min(item['max'], item['value'] + delta))
+            
+            # System Volume Control
+            if item['key'] == 'sound':
+                try: 
+                    import subprocess
+                    subprocess.Popen(["amixer", "sset", "Master", f"{item['value']}%"])
+                except: pass
+            elif item['key'] == 'mic_volume':
+                try:
+                    import subprocess
+                    subprocess.Popen(["amixer", "sset", "Capture", f"{item['value']}%"])
+                except: pass
             
             # Emit full state for sliders with mute, else just value
             if 'muted' in item:
@@ -352,7 +350,7 @@ class AppLauncherOverlay(QWidget):
         self.container.setStyleSheet("background-color: transparent;")
         self.layout_container = QVBoxLayout(self.container)
         self.layout_container.setContentsMargins(40, 40, 40, 40)
-        self.layout_container.setSpacing(20)
+        self.layout_container.setSpacing(30) # Increased spacing
         self.layout_container.setAlignment(Qt.AlignmentFlag.AlignTop)
         
         self.scroll.setWidget(self.container)
@@ -367,7 +365,8 @@ class AppLauncherOverlay(QWidget):
         import config
         # Use Window Height
         screen_h = self.height()
-        base_font_size = int(screen_h * config.FONT_SCALE_RATIO * config.UI_SCALE * 2.0) # Base size
+        # REDUCED multiplier from 2.0 to 1.2
+        base_font_size = int(screen_h * config.FONT_SCALE_RATIO * config.UI_SCALE * 1.2)
         
         self.item_widgets = []
         self.scroll.verticalScrollBar().setValue(0) # Reset Scroll
@@ -378,8 +377,8 @@ class AppLauncherOverlay(QWidget):
             
             # Selection Style
             if i == self.current_index:
-                 # Selected: Big and Bold
-                 lbl.setFont(QFont("Monospace", int(base_font_size * 1.5), QFont.Weight.Bold))
+                 # Selected: Moderate Zoom to prevent layout break
+                 lbl.setFont(QFont("Monospace", int(base_font_size * 1.3), QFont.Weight.Bold))
                  prefix = "> "
                  color = "#00FFFF"
                  bg = "rgba(0, 255, 255, 30)"

@@ -21,7 +21,7 @@ SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1080
 FULLSCREEN = True
 UI_SCALE = 1.0  # Revert to standard
-FONT_SCALE_RATIO = 0.02 # Reverted to standard
+FONT_SCALE_RATIO = 0.05 # Increased for readability (User Feedback)
 FACE_TRACKING = True
 TARGET_DISPLAY = "HDMI" # Substring to match display name (e.g. "HDMI", "DP")
 

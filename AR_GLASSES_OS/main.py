@@ -84,6 +84,14 @@ class AROS(QWidget):
         # else:
         #     print(f"[Input] Ignored {action} (No overlay active)")
 
+    def play_sound(self, sound_file):
+        """Play a sound file using aplay (non-blocking)"""
+        try:
+            import subprocess
+            subprocess.Popen(["aplay", sound_file], stderr=subprocess.DEVNULL)
+        except Exception as e:
+            print(f"[Sound] Error playing {sound_file}: {e}")
+
     def on_button_press(self, btn):
         print(f"[Input] Button {btn} Pressed")
         
@@ -94,17 +102,46 @@ class AROS(QWidget):
         # C2/C0 should still work.
         
         # Special Handling for HUD Input
-        if self.stack.currentIndex() == 1: # HUD Active
-            # If valid HUD key, pass it
-            if btn in [config.PIN_D4, config.PIN_C3, config.PIN_C4, config.PIN_C6]:
-                if hasattr(self.hud, 'handle_input'):
-                    self.hud.handle_input(btn)
-                return 
+        try:
+            current_idx = self.stack.currentIndex()
+            print(f"[Input] Stack Index: {current_idx}, Button: {btn}") # DEBUG
+            
+            if current_idx == 1: # HUD Active
+                # If valid HUD key, pass it
+                if btn in [config.PIN_D4, config.PIN_C3, config.PIN_C4, config.PIN_C6]:
+                    print(f"[Input] Routing HUD Key {btn} to HUD Module")
+                    if hasattr(self.hud, 'handle_input'):
+                        self.hud.handle_input(btn)
+                    return 
+        except Exception as e:
+            print(f"[Input] Error checking stack index: {e}")
+            import traceback
+            traceback.print_exc() 
 
         if btn == config.FT_MENU: # C2
             self.toggle_menu()
         elif btn == config.FT_LAUNCHER: # C0
             self.toggle_launcher() # Switch directly
+        elif btn == config.FT_SELECT: # C1
+            curr_widget = self.stack.currentWidget()
+            if curr_widget == self.menu_overlay:
+                action = self.menu_overlay.select()
+                if action:
+                    self.handle_menu_action(action)
+            elif curr_widget == self.launcher_overlay:
+                self.launcher_overlay.select()
+            else: self.menu.navigate("select") # Fallback?
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Recalculate Status Font based on new height
+        h = self.height()
+        import config
+        # Force Large Size for Status Text (Reduced from 0.05 to 0.04)
+        font_size = int(h * 0.04) 
+        font_size = max(30, font_size)
+        self.label.setStyleSheet(f"color: #00FF00; font-size: {font_size}px; font-weight: bold;")
+        print(f"[UI] Resized to {self.width()}x{self.height()}. Font updated to {font_size}px.")
 
     def handle_menu_action(self, item):
         if not item: return
@@ -233,7 +270,7 @@ class AROS(QWidget):
         pass
 
         # State Tracking
-        self.last_app_index = 0 # 0=Status, 1=HUD
+        # self.last_app_index = 0 # REMOVED: Resets state on resize, breaking HUD input routing
 
     def log(self, msg):
         print(f"[AROS Input] {msg}")
