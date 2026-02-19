@@ -102,6 +102,10 @@ class SensorFusionHUD(QWidget):
         is_inverted = abs(self.pitch) > 70 
         
         if is_inverted:
+            # Debug Print only once per second to avoid spam
+            if time.time() - self.last_alarm > 1.0:
+                 print(f"[HUD] ALARM ACTIVE! Pitch: {self.pitch:.1f}")
+            
             self.draw_warning(painter, w, h, scale, cx, cy)
             
             # Sound Trigger (Throttled 1s)

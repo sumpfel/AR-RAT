@@ -1,5 +1,6 @@
 {
     "cam_input": false,
+    "face_tracking": true,
     "mouse_control": false,
     "keyboard_mode": false,
     "translation_mode": false,

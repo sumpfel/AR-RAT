@@ -29,8 +29,8 @@ class AROS(QWidget):
 
         self.sensor_fusion = SensorFusionModule()
 
+        # Connect Signal ONCE to central handler
         self.sensor_fusion.orientation_changed.connect(self.on_orientation)
-        self.sensor_fusion.orientation_changed.connect(self.hud.update_data)
         self.sensor_fusion.start()
         
         # Connect Input
@@ -73,6 +73,24 @@ class AROS(QWidget):
 
     def route_input(self, action):
         curr = self.stack.currentIndex()
+        
+        # HUD Input Routing (High Priority)
+        if curr == 1: # HUD Active
+             print(f"[Input] HUD Active. Routing action: {action}")
+             # Map abstract action to physical pin for HUD compatibility
+             import config
+             pin = None
+             if action == "up": pin = config.PIN_D4
+             elif action == "down": pin = config.PIN_C3
+             elif action == "left": pin = config.PIN_C4
+             elif action == "right": pin = config.PIN_C6
+             elif action == "select": pin = config.PIN_C1 # Maybe irrelevant for HUD?
+
+             if pin:
+                 if hasattr(self.hud, 'handle_input'):
+                     self.hud.handle_input(pin)
+                 return
+
         if curr == 2: # Menu
             if action == "select": 
                 item = self.menu.select()
@@ -92,56 +110,19 @@ class AROS(QWidget):
         except Exception as e:
             print(f"[Sound] Error playing {sound_file}: {e}")
 
-    def on_button_press(self, btn):
-        print(f"[Input] Button {btn} Pressed")
-        
-        # Global Overrides (C2=Menu, C0=Launcher) - unless in HUD Mode?
-        # User might want to switch HUD modes.
-        # But C2 is Menu. Menu is higher priority?
-        # If HUD is active, we might want to capture D4/C3/C4/C6 (Arrows).
-        # C2/C0 should still work.
-        
-        # Special Handling for HUD Input
-        try:
-            current_idx = self.stack.currentIndex()
-            print(f"[Input] Stack Index: {current_idx}, Button: {btn}") # DEBUG
-            
-            if current_idx == 1: # HUD Active
-                # If valid HUD key, pass it
-                if btn in [config.PIN_D4, config.PIN_C3, config.PIN_C4, config.PIN_C6]:
-                    print(f"[Input] Routing HUD Key {btn} to HUD Module")
-                    if hasattr(self.hud, 'handle_input'):
-                        self.hud.handle_input(btn)
-                    return 
-        except Exception as e:
-            print(f"[Input] Error checking stack index: {e}")
-            import traceback
-            traceback.print_exc() 
-
-        if btn == config.FT_MENU: # C2
-            self.toggle_menu()
-        elif btn == config.FT_LAUNCHER: # C0
-            self.toggle_launcher() # Switch directly
-        elif btn == config.FT_SELECT: # C1
-            curr_widget = self.stack.currentWidget()
-            if curr_widget == self.menu_overlay:
-                action = self.menu_overlay.select()
-                if action:
-                    self.handle_menu_action(action)
-            elif curr_widget == self.launcher_overlay:
-                self.launcher_overlay.select()
-            else: self.menu.navigate("select") # Fallback?
-
+    # DEAD CODE REMOVED (on_button_press was not connected)
+    
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # Recalculate Status Font based on new height
+        # Recalculate Status Font
         h = self.height()
-        import config
         # Force Large Size for Status Text (Reduced from 0.05 to 0.04)
         font_size = int(h * 0.04) 
         font_size = max(30, font_size)
         self.label.setStyleSheet(f"color: #00FF00; font-size: {font_size}px; font-weight: bold;")
-        print(f"[UI] Resized to {self.width()}x{self.height()}. Font updated to {font_size}px.")
+        
+        # State Tracking - REMOVED reset to avoid bug
+        # self.last_app_index = 0 
 
     def handle_menu_action(self, item):
         if not item: return
@@ -168,15 +149,14 @@ class AROS(QWidget):
              print(f"[AROS] Unknown App: {cmd}")
 
 
-    def on_orientation(self, r, p, y, gyro, active_targets=0, face_img=None, face_lum=0):
-        if not hasattr(self, "_u_count"): self._u_count = 0
-        self._u_count += 1
-        if self._u_count % 100 == 0:
-            print(f"[SensorFusion] R: {r:.1f} P: {p:.1f} Y: {y:.1f} Td: {active_targets}")
-            
+    def on_orientation(self, r, p, y, gyro_data, active_targets=0, face_img=None, face_lum=0):
         # Update HUD
-        if hasattr(self, 'hud'):
-            self.hud.update_data(r, p, y, gyro, active_targets, face_img, face_lum)
+        if self.stack.currentIndex() == 1:
+            self.hud.update_data(r, p, y, gyro_data, active_targets, face_img, face_lum)
+            
+        # Update Debug Window (Always, if active)
+        if self.debug_window:
+            self.debug_window.update_data(r, p, y)
 
     def initUI(self):
         self.setWindowTitle("AR Glasses OS")
@@ -230,26 +210,108 @@ class AROS(QWidget):
         # Fullscreen Geometry Logic
         if config.FULLSCREEN:
              target_screen = None
+             secondary_screen = None
              screens = QApplication.screens()
              for screen in screens:
                  print(f"[UI] Screen Found: {screen.name()} {screen.geometry()}")
                  if config.TARGET_DISPLAY in screen.name():
                      target_screen = screen
                      print(f"[UI] Target Selected: {screen.name()}")
-                     break
+                 else:
+                     secondary_screen = screen # Grab any non-target as secondary
+             
              if target_screen is None and len(screens) > 1:
                  target_screen = screens[-1]
-                 print(f"[UI] Defaulting to secondary display: {target_screen.name()}")
-             
+                 # If we defaulted to last, pick previous as secondary?
+                 if len(screens) > 1: secondary_screen = screens[0]
+
              if target_screen:
                  self.setGeometry(target_screen.geometry())
                  self.showFullScreen()
-                 self.windowHandle().setScreen(target_screen)
-                 print(f"[UI] Window Geometry Set to: {self.geometry()}")
+                 
+                 # Explicitly set screen handle
+                 if self.windowHandle():
+                     self.windowHandle().setScreen(target_screen)
+                 
+                 # --- Secondary Screen Windows (Laptop) ---
+                 if secondary_screen:
+                     sec_geo = secondary_screen.geometry()
+                     
+                     # 1. Debug Window (Cube)
+                     from ui.debug_window import DebugWindow
+                     self.debug_window = DebugWindow()
+                     self.debug_window.setWindowTitle("AROS_Debug")
+                     self.debug_window.setObjectName("AROS_Debug")
+                     
+                     # Move to left half? Hyprland will tile, just show() is often enough.
+                     # But setting screen is good.
+                     self.debug_window.show() # Normal window for tiling
+                     
+                     if self.debug_window.windowHandle():
+                         self.debug_window.windowHandle().setScreen(secondary_screen)
+                         # Optional: Move to ensure it's on that screen
+                         self.debug_window.move(sec_geo.x() + 100, sec_geo.y() + 100)
+
+                     # 2. Mirror Window (HUD Copy)
+                     # We can reuse SensorFusionHUD class
+                     self.mirror_window = SensorFusionHUD()
+                     self.mirror_window.setWindowTitle("AROS_Mirror")
+                     self.mirror_window.setObjectName("AROS_Mirror")
+                     self.mirror_window.resize(600, 800) # Portrait-ish default
+                     
+                     self.mirror_window.show() # Normal window for tiling
+                     
+                     if self.mirror_window.windowHandle():
+                         self.mirror_window.windowHandle().setScreen(secondary_screen)
+                         self.mirror_window.move(sec_geo.x() + 700, sec_geo.y() + 100)
+                     
+                     print(f"[UI] Launched Debug & Mirror on {secondary_screen.name()}")
+                     
+                     # Hyprland Force Move (Async)
+                     monitor_name = secondary_screen.name()
+                     QTimer.singleShot(500, lambda: self.force_hyprland_move("AROS_Debug", monitor_name))
+                     QTimer.singleShot(800, lambda: self.force_hyprland_move("AROS_Mirror", monitor_name))
+
+                 else:
+                     self.debug_window = None
+                     self.mirror_window = None
              else:
                 self.showFullScreen()
+                self.debug_window = None
+                self.mirror_window = None
         else:
             self.show()
+
+    def force_hyprland_move(self, title, monitor):
+        """Use hyprctl to force window to correct monitor"""
+        try:
+            import subprocess
+            # 1. Focus Window
+            # Use regex to exact match title
+            cmd_focus = ["hyprctl", "dispatch", "focuswindow", f"title:^{title}$"]
+            subprocess.run(cmd_focus, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            # 2. Move to Monitor
+            cmd_move = ["hyprctl", "dispatch", "movewindow", f"mon:{monitor}"]
+            subprocess.run(cmd_move, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print(f"[UI] Hyprland: Moved '{title}' to {monitor}")
+        except Exception as e:
+            print(f"[UI] Hyprland Move Failed: {e}")
+
+    def on_orientation(self, r, p, y, gyro_data, active_targets, face_img, face_lum):
+        # Update Main HUD (on Glasses)
+        if self.stack.currentIndex() == 1:
+            self.hud.update_data(r, p, y, gyro_data, active_targets, face_img, face_lum)
+            
+        # Update Mirror Window (Always if exists)
+        if hasattr(self, 'mirror_window') and self.mirror_window:
+            # Sync Mode with Main HUD?
+            self.mirror_window.mode = self.hud.mode 
+            self.mirror_window.update_data(r, p, y, gyro_data, active_targets, face_img, face_lum)
+
+        # Update Debug Window (Cube)
+        if self.debug_window:
+            self.debug_window.update_data(r, p, y)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
